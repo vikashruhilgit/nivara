@@ -1,0 +1,2 @@
+- [InvestIQ Project Overview](project_investiq_overview.md) — Greenfield AI investment platform, mobile-first MVP, FastAPI+Expo, key tech decisions
+- [Vikash - Solo Developer](user_vikash.md) — Solo dev with active Zerodha/Alpaca accounts, thorough planner, safety-first design
