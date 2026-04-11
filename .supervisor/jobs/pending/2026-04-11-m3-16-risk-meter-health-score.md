@@ -26,6 +26,9 @@ Users need a single at-a-glance risk indicator for their portfolio and a health 
 - [ ] Given portfolio health score computed, then returns 0-100 with 4 component breakdown (diversification, fundamental, technical, risk-adjusted)
 - [ ] Given GET /api/portfolio/health-score, then returns overall score + 4 component scores
 - [ ] Given health score computation, then updated daily (not on every request)
+- [ ] Given underlying price/analysis data aged 4-24 hours, when risk meter displayed, then yellow "stale" warning badge shown alongside the gauge score
+- [ ] Given underlying price/analysis data aged >24 hours, when risk meter displayed, then red "very stale" warning badge shown alongside the gauge score
+- [ ] Given underlying data aged >24 hours, when portfolio health score displayed, then score flagged with "Data outdated — score may not reflect current conditions"
 
 ## Subtask Structure
 

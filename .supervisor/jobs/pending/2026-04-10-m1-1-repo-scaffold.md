@@ -15,6 +15,10 @@ The developer needs a fully initialized project before any feature work can begi
 
 ## Acceptance Criteria
 - [ ] Given v1.2 docs, when Job 1 completes, then v1.3 PRD + TechSpec exist reflecting: mobile app (not web), bearer auth (not cookies), Expo Push notifications, all 25 gaps addressed
+- [ ] Given PRD v1.2 §2.3 lists "No mobile app" in NOT-in-MVP, when v1.3 written, then mobile app REMOVED from that list; all Next.js + Tailwind references replaced with React Native + Expo; frontend/ renamed to mobile/ in TechSpec §2; Layer 6 updated
+- [ ] Given TechSpec v1.2 §1.1 specifies httpOnly cookies + CSRF, when v1.3 written, then §1.1 rewritten to bearer token pattern — refresh token in JSON body, no cookies, no CSRF, expo-secure-store for mobile storage
+- [ ] Given PRD §18.1 says idempotency key is (broker_connection_id, broker_symbol), when v1.3 written, then ALL idempotency key references use (broker_connection_id, instrument_id) — the canonical form after symbol mapping
+- [ ] Given TechSpec v1.2 §3 has 13 tables, when v1.3 written, then device_tokens table schema added: id (UUID PK), user_id (FK), platform (ENUM: ios|android), push_token (VARCHAR), is_active (BOOLEAN), created_at, updated_at; UNIQUE on (user_id, push_token)
 - [ ] Given no git repo, when Job 1 completes, then git init + GitHub remote created via `gh repo create`
 - [ ] Given no code, when Job 1 completes, then `docker compose up -d` brings Postgres 16 + Redis 7 + FastAPI (health endpoint) up; `/health` returns 200
 - [ ] Given no mobile app, when Job 1 completes, then `cd mobile && npx expo start` boots Metro bundler

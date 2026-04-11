@@ -19,6 +19,8 @@ Sentiment analysis is 20% of the MVP recommendation composite score. Without it,
 - [ ] Given GNews rate limit hit, when news fetch called, then gracefully degrades to RSS feeds
 - [ ] Given Reddit unavailable, when sentiment calculated, then social weight redistributed (news 60%, macro 40%)
 - [ ] Given 24h old news article, when scored, then weight decayed by 50% (24h half-life)
+- [ ] Given FRED economic data available, when macro sentiment computed, then maps key indicators (unemployment rate change, Fed funds rate direction, GDP growth trend) to a macro score (-1 to +1) contributing 30% of composite
+- [ ] Given FRED unavailable, when macro sentiment computed, then defaults to 0 (neutral) and redistributes weight to news 70% + social 30%
 
 ## Subtask Structure
 
@@ -27,7 +29,7 @@ Sentiment analysis is 20% of the MVP recommendation composite score. Without it,
 | 1 | GNews client + RSS fallback | AC #2 | 1 modify (`pyproject.toml` — add feedparser), 2 create (`backend/app/data/gnews.py`, `backend/app/data/rss.py`) | GNews API, feedparser | LAUNCHABLE |
 | 2 | Reddit client (PRAW) | AC #3 | 1 modify (`pyproject.toml` — add praw), 1 create (`backend/app/data/reddit.py`) | PRAW SDK | LAUNCHABLE |
 | 3 | FinBERT inference service | AC #1, #4 | 1 modify (`pyproject.toml` — add transformers, torch), 1 create (`backend/app/analysis/finbert.py`) | HuggingFace transformers, ProsusAI/finbert | LAUNCHABLE |
-| 4 | Sentiment scoring engine (composite + decay) | AC #1, #3, #4 | 0 modify, 1 create (`backend/app/analysis/sentiment.py`) | Exponential decay math, weight redistribution | BLOCKED (by #1, #2, #3) |
+| 4 | Sentiment scoring engine (composite + decay + macro) | AC #1, #3, #4 | 0 modify, 1 create (`backend/app/analysis/sentiment.py`) | Exponential decay math, weight redistribution, FRED macro indicators | BLOCKED (by #1, #2, #3) |
 | 5 | API endpoint + tests | All ACs | 1 modify (`main.py` or `backend/app/api/analysis.py` — add sentiment route), 3 create (`backend/tests/test_gnews.py`, `backend/tests/test_sentiment.py`, `backend/tests/test_finbert.py`) | FastAPI routing, pytest | BLOCKED (by #4) |
 
 ## Parallelism Analysis
@@ -74,7 +76,7 @@ Note: pyproject.toml overlap is additive (different dependencies). Workers can s
 | GNews 100 req/day limit requires careful batching | HIGH | Batch by sector (not per-symbol); supplement with RSS; track daily usage counter in Redis |
 | Reddit API access could be further restricted | LOW | Social sentiment is 20% weight; graceful degradation redistributes to news 60% + macro 40% |
 | torch dependency is large (~2GB with CPU-only) | MEDIUM | Use torch CPU-only build (`torch --index-url https://download.pytorch.org/whl/cpu`); document in setup |
-| Macro sentiment (30% weight) source not specified in this job | MEDIUM | Use FRED economic indicators (from Job 11) or placeholder; document macro sentiment data source |
+| Macro sentiment (30% weight) uses FRED indicators | LOW | Subtask 4 computes macro score from FRED data (Job 11's fred.py); maps unemployment/fed-rate/GDP direction to -1..+1; degrades to neutral (0) if FRED unavailable |
 | FinBERT may not handle Indian financial terminology well | LOW | FinBERT trained on English financial text; Indian news in English should work; monitor accuracy |
 
 ## Configuration

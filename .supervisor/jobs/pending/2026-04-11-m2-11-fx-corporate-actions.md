@@ -24,7 +24,7 @@ Without FX rates, cross-currency portfolio metrics cannot be computed — Indian
 
 | # | Title | Acceptance Criteria Subset | Est. Files (modify/create) | Skills | Status |
 |---|-------|---------------------------|---------------------------|--------|--------|
-| 1 | FRED API client + FX service | AC #1, #2 | 0 modify, 2 create (`backend/app/data/fred.py`, `backend/app/services/fx.py`) | FRED API, HTTP client | LAUNCHABLE |
+| 1 | FRED API client + extend FX service | AC #1, #2 | 1 modify (`backend/app/services/fx.py` — extend stub created by Job 8 with full FRED/ECB pipeline, daily refresh logic, and caching), 1 create (`backend/app/data/fred.py`) | FRED API, HTTP client | LAUNCHABLE |
 | 2 | ECB fallback for FX | AC #2 | 1 modify (`backend/app/services/fx.py` — add fallback logic), 0 create | ECB SDMX API | BLOCKED (by #1) |
 | 3 | Corporate actions detection (Yahoo adj factors) | AC #3 | 0 modify, 1 create (`backend/app/services/corporate_actions.py`) | yfinance adjustment factors | LAUNCHABLE |
 | 4 | Corporate actions detection (broker sync anomaly) | AC #4 | 1 modify (`backend/app/services/corporate_actions.py` — add anomaly detection), 0 create | Reconciliation logic | BLOCKED (by #3) |
