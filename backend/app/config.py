@@ -45,6 +45,26 @@ class Settings(BaseSettings):
     default_user_tier: str = "free"
     default_base_currency: str = "INR"
 
+    # Broker token encryption (AES-256-GCM).
+    #
+    # Comma-separated list of URL-safe base64-encoded 32-byte master keys;
+    # primary key is first, older keys afterwards for decrypt-only fallback
+    # during rotation. Generate:
+    # ``python -c "import os, base64;
+    # print(base64.urlsafe_b64encode(os.urandom(32)).decode())"``.
+    master_encryption_key: str | None = None
+
+    # Alpaca (paper trading by default — never point MVP at live).
+    alpaca_api_key: str | None = None
+    alpaca_api_secret: str | None = None
+    alpaca_base_url: str = "https://paper-api.alpaca.markets"
+    alpaca_oauth_client_id: str | None = None
+    alpaca_oauth_redirect_uri: str = "http://localhost:8000/api/auth/broker/alpaca/callback"
+
+    # Zerodha (stub in MVP).
+    zerodha_api_key: str | None = None
+    zerodha_api_secret: str | None = None
+
 
 @lru_cache
 def get_settings() -> Settings:
