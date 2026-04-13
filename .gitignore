@@ -34,3 +34,13 @@ docker-compose.override.yml
 *.pem
 *.key
 credentials.json
+
+# Supervisor state
+.supervisor/
+
+# Python test/coverage artifacts
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
