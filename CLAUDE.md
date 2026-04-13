@@ -63,7 +63,7 @@ Nivara/                          # repo root
 │   ├── tsconfig.json
 │   └── babel.config.js
 ├── plan/                        # PRD / TechSpec / implementation docs
-├── .supervisor/                 # Supervisor state & jobs (gitignored)
+├── .supervisor/                 # Supervisor jobs (tracked in git)
 ├── docker-compose.yml
 ├── pyproject.toml
 ├── ruff.toml
