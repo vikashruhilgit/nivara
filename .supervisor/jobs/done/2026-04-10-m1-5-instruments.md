@@ -80,3 +80,14 @@ Subtask 2 (symbol mapping) ───────┘
 ```
 /supervisor job: .supervisor/jobs/pending/2026-04-10-m1-5-instruments.md
 ```
+
+## Outcome
+- **Status:** completed
+- **Completed:** 2026-04-13T00:00:00Z
+- **PR:** https://github.com/vikashruhilgit/nivara/pull/5
+- **Branch:** feat/m1-5-instruments
+- **Files changed:** 7 (5 created, 2 modified) — +1005 lines
+- **Heal loop ran:** true
+- **Heal decision:** PASS
+- **Heal iterations:** 0
+- **Summary:** Implemented InstrumentsService (resolve-or-create with ON CONFLICT DO NOTHING), SymbolMappingService (normalize_symbol + data_symbol for Yahoo), and /api/instruments router (resolve, search, detail, data-symbol). All 6 ACs covered by 18 new tests; full suite 61/61 passing; ruff, mypy --strict, format checks clean. Integration self-review PASSED with 0 fixes.
