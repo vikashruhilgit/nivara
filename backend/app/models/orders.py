@@ -1,14 +1,14 @@
 """Broker order records (submitted via API, mirrors broker state)."""
+
 from __future__ import annotations
 
 from decimal import Decimal
 from uuid import UUID, uuid4
 
+from backend.app.models.base import Base, TimestampMixin
 from sqlalchemy import Enum, ForeignKey, Numeric, String
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column
-
-from backend.app.models.base import Base, TimestampMixin
 
 OrderSideEnum = Enum("buy", "sell", name="order_side_enum", native_enum=True)
 OrderTypeEnum = Enum("market", "limit", name="order_type_enum", native_enum=True)

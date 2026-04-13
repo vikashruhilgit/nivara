@@ -13,20 +13,22 @@ Notes
 * Audit-log immutability (UPDATE/DELETE trigger + role REVOKE) lives in
   migration ``002_audit_immutability`` so the concern is cleanly separable.
 """
+
 from __future__ import annotations
 
-from datetime import datetime, timezone
-from typing import Sequence, Union
+from collections.abc import Sequence
+from datetime import UTC, datetime
 
 import sqlalchemy as sa
-from alembic import op
 from sqlalchemy.dialects import postgresql
+
+from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = "001_initial"
-down_revision: Union[str, Sequence[str], None] = None
-branch_labels: Union[str, Sequence[str], None] = None
-depends_on: Union[str, Sequence[str], None] = None
+down_revision: str | Sequence[str] | None = None
+branch_labels: str | Sequence[str] | None = None
+depends_on: str | Sequence[str] | None = None
 
 
 # Enum definitions (reused below and dropped in downgrade)
@@ -345,7 +347,7 @@ def upgrade() -> None:
         """
     )
     # Create 3 forward-looking monthly partitions (current + 2 ahead)
-    now = datetime.now(tz=timezone.utc)
+    now = datetime.now(tz=UTC)
     for i in range(3):
         year = now.year + ((now.month - 1 + i) // 12)
         month = ((now.month - 1 + i) % 12) + 1
@@ -381,9 +383,7 @@ def upgrade() -> None:
         sa.Column("rationale", sa.Text(), nullable=False),
         sa.Column("confidence_score", sa.Numeric(5, 2), nullable=False),
         sa.Column("expires_at", sa.TIMESTAMP(timezone=True), nullable=False),
-        sa.Column(
-            "status", _RECOMMENDATION_STATUS_ENUM, nullable=False, server_default="pending"
-        ),
+        sa.Column("status", _RECOMMENDATION_STATUS_ENUM, nullable=False, server_default="pending"),
         sa.Column(
             "created_at",
             sa.TIMESTAMP(timezone=True),

@@ -1,15 +1,15 @@
 """AI-generated investment recommendations surfaced to users."""
+
 from __future__ import annotations
 
 from datetime import datetime
 from decimal import Decimal
 from uuid import UUID, uuid4
 
+from backend.app.models.base import Base, TimestampMixin
 from sqlalchemy import TIMESTAMP, Enum, ForeignKey, Numeric, Text
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column
-
-from backend.app.models.base import Base, TimestampMixin
 
 RecommendationTypeEnum = Enum(
     "buy", "sell", "hold", name="recommendation_type_enum", native_enum=True
@@ -45,6 +45,4 @@ class Recommendation(Base, TimestampMixin):
     rationale: Mapped[str] = mapped_column(Text, nullable=False)
     confidence_score: Mapped[Decimal] = mapped_column(Numeric(5, 2), nullable=False)
     expires_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), nullable=False)
-    status: Mapped[str] = mapped_column(
-        RecommendationStatusEnum, nullable=False, default="pending"
-    )
+    status: Mapped[str] = mapped_column(RecommendationStatusEnum, nullable=False, default="pending")

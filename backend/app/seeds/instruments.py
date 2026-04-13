@@ -4,24 +4,25 @@ Reads ``symbol_mappings.json`` (co-located fixture), upserts each instrument
 (keyed on UNIQUE(symbol, exchange)) and its broker mapping (keyed on
 UNIQUE(broker, broker_symbol, broker_exchange)). Safe to re-run.
 """
+
 from __future__ import annotations
 
 import json
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy.dialects.postgresql import insert
-from sqlalchemy.ext.asyncio import AsyncSession
-
 from backend.app.models.instruments import Instrument
 from backend.app.models.symbol_mappings import SymbolMapping
+from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy.ext.asyncio import AsyncSession
 
 _FIXTURE_PATH = Path(__file__).parent / "symbol_mappings.json"
 
 
 def _load_fixture() -> dict[str, Any]:
     with _FIXTURE_PATH.open(encoding="utf-8") as f:
-        return json.load(f)
+        data: dict[str, Any] = json.load(f)
+        return data
 
 
 async def seed_instruments(session: AsyncSession) -> dict[str, int]:
@@ -78,9 +79,7 @@ async def seed_instruments(session: AsyncSession) -> dict[str, int]:
                 broker_symbol=row["broker_symbol"],
                 broker_exchange=row.get("broker_exchange", "NSE"),
             )
-            .on_conflict_do_nothing(
-                index_elements=["broker", "broker_symbol", "broker_exchange"]
-            )
+            .on_conflict_do_nothing(index_elements=["broker", "broker_symbol", "broker_exchange"])
             .returning(SymbolMapping.id)
         )
         mapping_result = await session.execute(mapping_stmt)
@@ -129,9 +128,7 @@ async def seed_instruments(session: AsyncSession) -> dict[str, int]:
                 broker_symbol=row["broker_symbol"],
                 broker_exchange=row.get("broker_exchange", exchange),
             )
-            .on_conflict_do_nothing(
-                index_elements=["broker", "broker_symbol", "broker_exchange"]
-            )
+            .on_conflict_do_nothing(index_elements=["broker", "broker_symbol", "broker_exchange"])
             .returning(SymbolMapping.id)
         )
         mapping_result = await session.execute(mapping_stmt)

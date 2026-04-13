@@ -5,17 +5,18 @@ Immutability (block UPDATE/DELETE) and role-based access (REVOKE on
 ORM model here declares only the schema — no model-level constraints enforce
 append-only behaviour.
 """
+
 from __future__ import annotations
 
 from datetime import datetime
 from typing import Any
 from uuid import UUID, uuid4
 
-from sqlalchemy import TIMESTAMP, ForeignKey, String, Text, func
-from sqlalchemy.dialects.postgresql import INET, JSONB, UUID as PG_UUID
-from sqlalchemy.orm import Mapped, mapped_column
-
 from backend.app.models.base import Base
+from sqlalchemy import TIMESTAMP, ForeignKey, String, Text, func
+from sqlalchemy.dialects.postgresql import INET, JSONB
+from sqlalchemy.dialects.postgresql import UUID as PG_UUID
+from sqlalchemy.orm import Mapped, mapped_column
 
 
 class AuditLog(Base):

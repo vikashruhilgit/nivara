@@ -1,14 +1,14 @@
 """Expo push notification tokens per user device."""
+
 from __future__ import annotations
 
 from datetime import datetime
 from uuid import UUID, uuid4
 
+from backend.app.models.base import Base
 from sqlalchemy import TIMESTAMP, Boolean, Enum, ForeignKey, String, func
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column
-
-from backend.app.models.base import Base
 
 PlatformEnum = Enum("ios", "android", name="platform_enum", native_enum=True)
 
