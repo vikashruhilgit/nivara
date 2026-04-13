@@ -1,16 +1,17 @@
 """Alembic environment — async, driven by backend.app.config settings."""
+
 from __future__ import annotations
 
 import asyncio
 from logging.config import fileConfig
 
-from alembic import context
+from backend.app.config import get_settings
+from backend.app.models import Base  # registers all 15 models on Base.metadata
 from sqlalchemy import pool
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
-from backend.app.config import get_settings
-from backend.app.models import Base  # registers all 15 models on Base.metadata
+from alembic import context
 
 # Alembic Config object
 config = context.config

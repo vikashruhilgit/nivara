@@ -4,6 +4,7 @@ Importing this package registers every model on ``Base.metadata`` so that
 Alembic's ``target_metadata = Base.metadata`` sees all 15 tables for
 autogenerate.
 """
+
 from __future__ import annotations
 
 from backend.app.models.ai_analysis_log import AiAnalysisLog

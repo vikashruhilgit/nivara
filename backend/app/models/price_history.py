@@ -6,17 +6,17 @@ only declares the parent table with the ``RANGE (timestamp)`` partitioning
 strategy. Autogenerate will NOT emit partition DDL; the initial migration does
 so manually using ``op.execute``.
 """
+
 from __future__ import annotations
 
 from datetime import datetime
 from decimal import Decimal
 from uuid import UUID
 
+from backend.app.models.base import Base
 from sqlalchemy import TIMESTAMP, BigInteger, ForeignKey, Numeric
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column
-
-from backend.app.models.base import Base
 
 
 class PriceHistory(Base):

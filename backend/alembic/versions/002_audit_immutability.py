@@ -20,17 +20,18 @@ Two-layer enforcement:
 A separate ``investiq_migrator`` role is also created so operators can grant
 migration rights without sharing the superuser account.
 """
+
 from __future__ import annotations
 
-from typing import Sequence, Union
+from collections.abc import Sequence
 
 from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = "002_audit_immutability"
-down_revision: Union[str, Sequence[str], None] = "001_initial"
-branch_labels: Union[str, Sequence[str], None] = None
-depends_on: Union[str, Sequence[str], None] = None
+down_revision: str | Sequence[str] | None = "001_initial"
+branch_labels: str | Sequence[str] | None = None
+depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:

@@ -1,15 +1,15 @@
 """Corporate actions (splits, dividends, mergers) applied to instruments."""
+
 from __future__ import annotations
 
 from datetime import date, datetime
 from decimal import Decimal
 from uuid import UUID, uuid4
 
+from backend.app.models.base import Base
 from sqlalchemy import TIMESTAMP, Date, Enum, ForeignKey, Numeric, String, Text, func
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column
-
-from backend.app.models.base import Base
 
 CorpActionTypeEnum = Enum(
     "split", "dividend", "merger", name="corp_action_type_enum", native_enum=True

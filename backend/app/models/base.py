@@ -1,4 +1,5 @@
 """Declarative base + common mixins for all ORM models."""
+
 from __future__ import annotations
 
 from datetime import datetime
