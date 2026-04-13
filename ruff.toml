@@ -1,0 +1,18 @@
+line-length = 100
+target-version = "py311"
+src = ["backend"]
+extend-exclude = [".venv", "build", "dist"]
+
+[lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM", "ASYNC", "S", "C4"]
+ignore = [
+    "E501",  # line length handled by formatter
+    "S101",  # allow asserts in tests
+]
+
+[lint.per-file-ignores]
+"backend/tests/**" = ["S101", "S105", "S106"]
+
+[format]
+quote-style = "double"
+indent-style = "space"
