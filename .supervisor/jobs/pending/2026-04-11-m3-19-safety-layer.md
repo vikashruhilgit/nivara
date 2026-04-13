@@ -14,6 +14,8 @@
 **Problem Statement:**
 Safety is foundational — built first so all other intelligence features can validate against safety constraints. Without the safety layer, recommendations cannot be quality-checked against position limits, loss limits, or drawdown thresholds. The kill switch is a non-negotiable requirement for any future execution capability. Currently, no safety guardrails exist. Success looks like a comprehensive safety validation system that can be called by any module to check whether an action is safe, with an immutable audit trail.
 
+**Note (MODE 4 scope):** Safety validation (loss limits, position sizing, drawdown) applies to the `traditional_score` only. The `blended_score` stored in `ai_analysis_log` is informational in shadow mode — it represents what the score would have been if AI were blended. Safety does not validate `blended_score`. In Phase 2+ live mode, safety will validate the final blended recommendation score.
+
 ## Acceptance Criteria
 - [ ] Given hypothetical buy that would make position >10% of portfolio, when validated, then rejected with reason "Exceeds max position size (10%)"
 - [ ] Given max position size configured to 15%, when hypothetical buy checked, then uses 15% threshold

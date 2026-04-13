@@ -14,6 +14,8 @@
 **Problem Statement:**
 The user currently has a basic mobile shell (from Month 1 Job 7) but no rich dashboard screens to visualize portfolio data, risk metrics, AI recommendations, or broker status. Without these screens, the beta launch (Job 24) has no user-facing value. This job delivers the complete mobile UI layer that ties together all backend services built in Months 1-3.
 
+**Note (MODE 4 scope):** A dev-only AI comparison view (showing `traditional_score` vs `ai_score` side-by-side from `ai_analysis_log`) is deferred to Phase 2 or can be added as a debug screen behind a developer flag. No UI changes in MVP beyond what is already specified.
+
 ## Acceptance Criteria
 - [ ] Given portfolio synced, when Portfolio tab opened, then shows total value in base currency + daily P&L + return percentage
 - [ ] Given risk meter score 45, when gauge rendered, then shows yellow zone (31-60) with score "45" displayed

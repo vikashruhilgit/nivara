@@ -14,6 +14,8 @@
 **Problem Statement:**
 Without a scheduler, all data pipelines must be triggered manually. The analysis engine needs fresh data at specific intervals tied to market sessions — not arbitrary crons. A session-aware scheduler ensures indicators are recalculated during trading hours, post-close batch processing happens at actual close time (handling half-days and DST), and always-running jobs (news, FX) execute regardless of market state. This is the orchestration backbone that ties together all Month 2 work into a coherent automated system.
 
+**Note (MODE 4 integration):** When `AI_ANALYSIS_ENABLED=true`, the `POST /api/recommendations/generate` endpoint (triggered by the recommendation generation task) will dispatch an async AI analysis Celery task. This task runs independently of the scheduler — it is triggered on-demand by the recommendation endpoint, not by a scheduled job. No scheduler changes required, but the Celery worker must be configured to handle the `ai_analysis` task queue.
+
 ## Acceptance Criteria
 - [ ] Given NSE market open, when scheduler checks, then in-session jobs (indicator recalc every 5min, portfolio sync every 60min) are running for XBOM market
 - [ ] Given NYSE market closed, when scheduler checks, then US in-session jobs are paused (not running)

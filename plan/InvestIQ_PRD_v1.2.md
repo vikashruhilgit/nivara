@@ -81,7 +81,7 @@ The platform aggregates market data exclusively from free and open-source provid
 
 - **Middleware, not broker:** No custody of funds. No broker-dealer overhead.
 - **Zero data cost (Phase 1):** All data from free sources (with documented caveats and escape hatches).
-- **Deterministic-first AI:** All analysis is reproducible math/rules. LLM explanations are optional.
+- **Deterministic-first AI:** All MVP analysis is reproducible math/rules. Phase 2+ adds optional AI-enhanced scoring (capped at 30%, audited, user opt-in) after legal review.
 - **Dual-market:** India + US with session-aware scheduling and cross-currency intelligence.
 - **Safety-first:** Kill switch, loss limits, position sizing, audit trail. MVP is strictly read-only.
 - **Live accounts:** Developer has active Zerodha and Alpaca accounts for real API testing.
@@ -133,6 +133,7 @@ The platform aggregates market data exclusively from free and open-source provid
 | **Custom ML pipeline** | **Phase 3** | **Sufficient training data** |
 | **Dividend-adjusted returns** | **Phase 2** | **Corporate actions pipeline** |
 | **FX risk in Risk Meter** | **Phase 2** | **FX volatility modeling** |
+| **AI-Enhanced Analysis (live mode)** | **Phase 2+** | **Legal review + 3 months shadow data** |
 
 ### 2.4 Constraints
 
@@ -337,7 +338,7 @@ Two sources: Yahoo Finance adjustment factors on daily data refresh, and broker 
 
 ## 11. AI & Analysis Engine
 
-| *All analysis is deterministic. Given same inputs, same outputs. LLMs never in the decision loop.* |
+| *All MVP analysis is deterministic. Given same inputs, same outputs. Phase 2+ adds optional AI-enhanced scoring (capped at 30%, fully audited, user opt-in) after legal review and 3 months of shadow-mode validation.* |
 | --- |
 
 ### 11.1 Technical Analysis (pandas-ta)
@@ -358,19 +359,20 @@ VaR (95%/99% historical simulation), volatility (30d/90d annualized), drawdown f
 
 ### 11.5 Recommendation Synthesis
 
-| **Signal** | **MVP** | **Phase 2+** |
-| --- | --- | --- |
-| **Technical** | **40%** | **30%** |
-| **Fundamental** | **25%** | **20%** |
-| **Sentiment** | **20%** | **15%** |
-| **Risk** | **15%** | **15%** |
-| **Predictive** | **N/A** | **20%** |
+| **Signal** | **MVP** | **Phase 2+ (no AI)** | **Phase 2+ (AI at 20%)** |
+| --- | --- | --- | --- |
+| **Technical** | **40%** | **30%** | **32% (40% × 0.80)** |
+| **Fundamental** | **25%** | **20%** | **20% (25% × 0.80)** |
+| **Sentiment** | **20%** | **15%** | **16% (20% × 0.80)** |
+| **Risk** | **15%** | **15%** | **12% (15% × 0.80)** |
+| **Predictive** | **N/A** | **20%** | **N/A (mutually exclusive with AI)** |
+| **AI Analysis** | **N/A** | **N/A** | **20% (max 30%)** |
 
 Output: Action, Confidence (0–100%), Risk-Adjusted Rating, Explanation (template default, LLM optional).
 
 ## 12. LLM & Explanation Policy
 
-| *LLMs never influence decisions. They only generate explanations of decisions already made deterministically.* |
+| *In MVP, LLMs only generate explanations of decisions already made deterministically. Phase 2+ optionally blends AI-enhanced analysis scores (capped at 30%, fully audited, user opt-in) into recommendations after legal review.* |
 | --- |
 
 | **Provider** | **Availability** | **Cost** | **Notes** |
@@ -405,6 +407,14 @@ Diversification, risk concentration, sector allocation vs benchmark (per-market 
 ### 13.5 Mode E: Risk Guardian [MVP]
 
 Position monitoring, volatility alerts (>2x ADR), earnings alerts (5-day lookahead), macro alerts (FRED). Channels: dashboard toast + in-app feed (default), email (opt-in).
+
+### 13.6 Mode F: AI-Enhanced Analysis [Phase 1: Shadow, Phase 2+: Live]
+
+**Shadow mode (Phase 1/MVP):** AI analysis runs asynchronously during recommendation generation. Claude analyzes earnings calls, 10-K filings, and management guidance to produce an AIAnalysisScore (outlook 0–1, risks 0–1, reasoning, model version). Score is logged to `ai_analysis_log` table alongside `traditional_score` and hypothetical `blended_score`, but is NOT blended into the recommendation. Recommendation uses ONLY deterministic scoring.
+
+**Live mode (Phase 2+):** Same as shadow, but AI score IS blended: `(1 - AI_weight) × traditional + AI_weight × AI_score`. Hard-blocked if `DEPLOYMENT_ENV=production` AND no legal review flag. Weight cap: 0.30 max enforced in code constant (`MAX_AI_WEIGHT`), not just env var. Requires 3 months of shadow data + legal review.
+
+Two providers: ClaudeCliAnalyzer (local/dev only, subprocess, $0) and ApiAnalyzer (Anthropic SDK, BYOK, user pays).
 
 ## 14. Risk Meter & Portfolio Health
 
@@ -587,6 +597,7 @@ India: ₹499/mo (Pro), ₹1,499/mo (Premium).
 **Month 3 — Intelligence & Safety**
 
 - Recommendation engine + TemplateExplainer + ExplainerProvider abstraction
+- AI Analysis shadow mode (async, log-only, not blended into recommendations)
 - Safety layer: limits, kill switch, immutable audit (trigger-guarded)
 - Risk models: VaR (252d lookback, 30d min), volatility, drawdown
 - Risk Meter (deterministic formula with drill-down)
@@ -603,6 +614,7 @@ India: ₹499/mo (Pro), ₹1,499/mo (Premium).
 ### Phase 2: Execution & Scale (Months 5–9)
 
 - Assisted Trading (Mode B) — after regulatory review
+- AI-Enhanced Analysis live mode (after legal review + 3 months shadow data)
 - Backtesting. IBKR adapter. ApiExplainer (BYOK).
 - Predictive models. Dividend-adjusted returns.
 - Email via Resend. Stripe/Razorpay. Mobile-responsive.
@@ -621,6 +633,7 @@ India: ₹499/mo (Pro), ₹1,499/mo (Premium).
 - **India (SEBI):** IA registration for personalized paid advice. Algo trading rules tightening. DPDP Act compliance.
 - **US (SEC):** IA Act for personalized advice. Publisher exclusion may apply. Not holding funds = likely no BD registration.
 - **Mitigation:** Phase 1 read-only + disclaimers. Phase 2 engage attorney. Phase 3 full compliance ($10K–$50K).
+- **AI Score Blending:** Legal review required before enabling live mode (AI scores blended into recommendations). Shadow mode (log-only) does not require legal review.
 
 ## 24. Success Metrics
 
@@ -641,6 +654,9 @@ India: ₹499/mo (Pro), ₹1,499/mo (Premium).
 | **Security breach** | **Critical** | **AES-256, dual-key rotation, no tokens in logs** | **Immediate revocation** |
 | **Stock split breaks data** | **Medium** | **Corporate actions pipeline** | **Manual adjustment + indicator recalc** |
 | **Burnout** | **High** | **Strict MVP scope** | **Seek co-founder** |
+| **Prompt injection in financial documents** | **High** | **Input sanitization (regex blocklist, max token limit, content classification pre-check)** | **Disable AI analysis; fall back to deterministic-only** |
+| **AI model drift (score quality degrades over time)** | **Medium** | **Model version tracking per score, shadow mode comparison against traditional** | **Revert to shadow mode; retrain/update prompts** |
+| **Weight misconfiguration (AI weight too high)** | **High** | **Hard cap 0.30 in code constant (MAX_AI_WEIGHT), audit log on weight changes** | **Automatic revert to 0.0 if anomaly detected** |
 
 ## 26. Open Questions
 
@@ -653,6 +669,7 @@ India: ₹499/mo (Pro), ₹1,499/mo (Premium).
 | **5** | **Zerodha daily reauth UX: auto-retry or explicit?** | **UX** | **Month 1** |
 | **6** | **Include FX risk in Risk Meter? (currently excluded)** | **Accuracy** | **Phase 2** |
 | **7** | **BSE (XBOM) support alongside NSE, or NSE-only in MVP?** | **Instrument mapping** | **Month 1** |
+| **8** | **Legal review for AI score blending — when to engage fintech attorney?** | **Regulatory** | **Before Phase 2 live mode** |
 
 *End of PRD v1.2*
 

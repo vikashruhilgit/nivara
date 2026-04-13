@@ -570,7 +570,7 @@ Month 4 — POLISH & BETA (Jobs 21-24)    "10-20 users on Alpaca paper"
 ## Key Design Principles
 
 1. **Broker is always source of truth** — InvestIQ never assumes local state is correct. Every sync fetches from broker and upserts.
-2. **Deterministic-first AI** — All analysis is reproducible math/rules. LLMs only generate explanations of decisions already made.
+2. **Deterministic-first AI** — All MVP analysis is reproducible math/rules. Phase 2+ adds optional AI-enhanced scoring (capped at 30%, audited, user opt-in) after legal review.
 3. **Safety layer nothing bypasses** — Kill switch, loss limits, and audit trail are foundational, not bolt-on.
 4. **Free data with escape hatches** — Every free source has a named paid alternative and a DataProvider abstraction for swapping.
 5. **Progressive disclosure** — Simple overview at a glance, depth on demand (tap risk meter → see formula).
@@ -587,6 +587,80 @@ Month 4 — POLISH & BETA (Jobs 21-24)    "10-20 users on Alpaca paper"
 | **C** | Fully Automated | Strategy rules, auto-execution with guardrails | Phase 2+ |
 | **D** | Portfolio Intelligence | Diversification, sector allocation, benchmark alpha, rebalancing suggestions | Yes |
 | **E** | Risk Guardian | Volatility/earnings/macro alerts via dashboard + push + optional email | Yes |
+| **F** | AI-Enhanced Analysis | Shadow: AI scores logged but not blended. Live (Phase 2+): blended at max 30% weight. | Shadow: Yes, Live: Phase 2+ |
+
+---
+
+## MODE 4: AI-Enhanced Analysis (Shadow + Live)
+
+```
+Phase 1 (MVP): SHADOW MODE — AI scores computed + logged, NOT blended
+Phase 2+ (after legal review): LIVE MODE — AI scores blended at configurable weight
+```
+
+### Design
+
+```
+                    POST /api/recommendations/generate
+                                  |
+                    ┌─────────────┴─────────────┐
+                    v                           v
+             Traditional Scoring          AI Analysis (async)
+             (deterministic, sync)        (Celery task, if enabled)
+             tech 40% + fund 25%               |
+             + sent 20% + risk 15%             v
+                    |                   AIAnalysisProvider
+                    |                   .analyze(instrument, docs)
+                    |                        |
+                    |              ┌─────────┴─────────┐
+                    |              v                   v
+                    |      ClaudeCliAnalyzer     ApiAnalyzer
+                    |      (local, subprocess)   (Anthropic SDK)
+                    |              |                   |
+                    |              └─────────┬─────────┘
+                    |                        v
+                    |                  AIAnalysisScore
+                    |                  {outlook, risks,
+                    |                   reasoning, model_version,
+                    |                   latency_ms, status}
+                    |                        |
+                    v                        v
+             ┌──────────────┐     ┌──────────────────────┐
+             │ Recommendation│     │  ai_analysis_log     │
+             │ (traditional │     │  (shadow: log only)  │
+             │  score ONLY) │     │  (live: also blend)  │
+             └──────────────┘     └──────────────────────┘
+```
+
+### Flag System
+
+| Flag | Default | Effect |
+|------|---------|--------|
+| `AI_ANALYSIS_ENABLED` | false | Master switch. If false, no AI analysis runs. |
+| `AI_ANALYSIS_SHADOW_MODE` | true | true = log only. false = blend into score (Phase 2+). |
+| `AI_ANALYSIS_PROVIDER` | claude_cli | claude_cli (local, $0) or api (BYOK, user pays). |
+| `AI_ANALYSIS_WEIGHT` | 0.20 | Weight given to AI score when blending. |
+| `AI_ANALYSIS_WEIGHT_CAP` | 0.30 | Hard cap. Also enforced as `MAX_AI_WEIGHT` code constant. |
+
+### Weight Redistribution (Live Mode)
+
+```
+Without AI (default):          With AI (AI_ANALYSIS_WEIGHT=0.20):
+  Technical:    40%              Technical:    32%  (40% × 0.80)
+  Fundamental:  25%              Fundamental:  20%  (25% × 0.80)
+  Sentiment:    20%              Sentiment:    16%  (20% × 0.80)
+  Risk:         15%              Risk:         12%  (15% × 0.80)
+  AI:            0%              AI Analysis:  20%
+```
+
+### Safety Mitigations (from red team review)
+
+1. **Output validation:** Pydantic schema, range clamp 0.0–1.0, refusal detection
+2. **Input sanitization:** Regex blocklist, max token limit, content classification
+3. **Weight enforcement:** `MAX_AI_WEIGHT=0.30` code constant, audit log on changes
+4. **Fallback:** Any AI failure → deterministic only, weight redistributed
+5. **Model version tracking:** Recorded per score in `ai_analysis_log`
+6. **Log write failure:** Warning logged, AI result discarded, not retried
 
 ---
 

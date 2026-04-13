@@ -151,6 +151,28 @@ id (BIGSERIAL), exchange (VARCHAR), date (DATE), is_holiday (BOOLEAN), session_o
 
 id (BIGSERIAL), user_id (UUID nullable), event_type (VARCHAR, indexed), event_data (JSONB), created_at (indexed). Immutability: REVOKE UPDATE, DELETE for app DB role. BEFORE UPDATE OR DELETE trigger raises exception. Personal: 1yr retention. SaaS: 7yr. Partitioned by month.
 
+### 3.14 ai_analysis_log
+
+| Column | Type | Null | Notes |
+|--------|------|------|-------|
+| id | BIGSERIAL | NO | PK |
+| user_id | UUID | NO | FK to users |
+| instrument_id | UUID | NO | FK to instruments |
+| provider | ENUM(claude_cli, api) | NO | Which AI provider used |
+| ai_score | JSONB | YES | AIAnalysisScore JSON (null on error) |
+| traditional_score | DECIMAL | NO | The deterministic composite score |
+| blended_score | DECIMAL | YES | Hypothetical: what blended score would have been |
+| model_version | VARCHAR | YES | e.g., "claude-sonnet-4-20250514" |
+| prompt_hash | VARCHAR | NO | SHA-256 of the prompt sent |
+| status | ENUM(success, error, refused, timeout) | NO | Outcome |
+| input_tokens | INT | YES | Tokens in prompt |
+| output_tokens | INT | YES | Tokens in response |
+| latency_ms | INT | YES | End-to-end AI call time |
+| shadow_mode | BOOLEAN | NO | true = log-only, false = blended (Phase 2+) |
+| created_at | TIMESTAMPTZ | NO | DEFAULT NOW() |
+
+Index on (user_id, created_at DESC). Index on (instrument_id, created_at DESC). Index on (status).
+
 ## 4. Explainer Provider Abstraction
 
 Interface: ExplainerProvider.explain(recommendation) → str. Provider name stored in audit.
@@ -170,6 +192,63 @@ User provides API key in settings. Pro/Premium only. Falls back to template on f
 ### 4.4 Fallback
 
 Any failure → TemplateExplainer. Recommendations never blocked by explainer. Audit logs actual provider used.
+
+## 4b. AI Analysis Provider Abstraction
+
+Interface: `AIAnalysisProvider.analyze(instrument, documents) → AIAnalysisScore`. Provider name stored in audit.
+
+### AIAnalysisScore Schema (Pydantic)
+
+```
+outlook: float       # 0.0-1.0, clamped
+risks: float         # 0.0-1.0, clamped
+reasoning: str
+model_version: str
+latency_ms: int
+status: str          # success | error | refused | timeout
+```
+
+### 4b.1 ClaudeCliAnalyzer (Local Only)
+
+subprocess: `claude -p <prompt> --output-format json`. Guarded by `AI_ANALYSIS_ENABLED=true` AND `DEPLOYMENT_ENV=local`. Security: timeout configurable (default 10s), max document tokens (default 4000), PII/token redaction, input sanitization (regex blocklist for known injection patterns). Audit: logs prompt_hash (SHA-256), model_version, latency_ms, input/output token counts.
+
+### 4b.2 ApiAnalyzer (BYOK)
+
+Anthropic SDK. User provides `ANTHROPIC_API_KEY`. Works in any `DEPLOYMENT_ENV`. Rate limited (default 10 calls/hour). Same security and audit as CLI.
+
+### 4b.3 Shadow Mode (Phase 1)
+
+AI analysis triggers ONLY on `POST /api/recommendations/generate`, NOT on GET. Runs as async Celery task (does not block recommendation response). Result logged to `ai_analysis_log` table with `traditional_score` and hypothetical `blended_score`. Recommendation uses ONLY traditional deterministic score.
+
+### 4b.4 Live Mode (Phase 2+)
+
+Score IS blended: `(1 - AI_weight) × traditional + AI_weight × AI_score`. Hard-blocked if `DEPLOYMENT_ENV=production` AND no legal review flag set. Weight cap: 0.30 enforced as code constant `MAX_AI_WEIGHT` (not just env var). Requires 3 months shadow data.
+
+### 4b.5 Input Sanitization
+
+- Strip known injection patterns via regex blocklist (e.g., "ignore previous instructions", "system prompt")
+- Max token limit per document: `AI_ANALYSIS_MAX_DOCUMENT_TOKENS` (default 4000)
+- Content classification pre-check (reject non-financial content)
+
+### 4b.6 Output Validation
+
+- Pydantic schema enforcement (AIAnalysisScore)
+- Range clamping: outlook and risks clamped to 0.0–1.0
+- Refusal detection: check for refusal patterns in reasoning field
+- Type checking: all fields validated before use
+
+### 4b.7 Fallback
+
+Any AI failure (timeout, error, refused, malformed output) → AI excluded from scoring. Weight redistributed to deterministic components. Warning logged. In shadow mode: status field records failure type.
+
+### 4b.8 Safety Mitigations Summary
+
+1. Output validation (Pydantic, range clamp, refusal detection)
+2. Input sanitization (regex blocklist, token limit, classification)
+3. Weight enforcement (MAX_AI_WEIGHT=0.30 code constant, audit on changes)
+4. Fallback (any failure → deterministic only, weight redistributed)
+5. Model version tracking (recorded per score in ai_analysis_log)
+6. Log write failure (warning logged, AI result discarded, not retried)
 
 ## 5. Broker Conformance & Feature Flags
 
@@ -311,6 +390,19 @@ DEPLOYMENT_ENV=local (local|hosted|production|saas)
 GNEWS_API_KEY
 
 NOTIFICATION_EMAIL_PROVIDER=none (none|smtp|resend)
+
+```
+# AI Analysis (MODE 4)
+AI_ANALYSIS_ENABLED=false
+AI_ANALYSIS_PROVIDER=claude_cli       # claude_cli | api
+AI_ANALYSIS_SHADOW_MODE=true          # true=log only, false=blend (Phase 2+)
+AI_ANALYSIS_WEIGHT=0.20               # default weight when blending
+AI_ANALYSIS_WEIGHT_CAP=0.30           # hard cap (also enforced as code constant)
+AI_ANALYSIS_TIMEOUT=10                # seconds
+AI_ANALYSIS_MAX_DOCUMENT_TOKENS=4000  # max tokens per document in prompt
+AI_ANALYSIS_RATE_LIMIT=10             # max AI analysis calls per hour (API provider)
+ANTHROPIC_API_KEY=                    # for API provider (BYOK)
+```
 
 ## 9. Caching & Performance
 
