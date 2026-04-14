@@ -127,9 +127,7 @@ class AlpacaAdapter(BrokerAdapter):
         client = await self._get_client()
         url = f"{self._base_url}{path}"
         try:
-            resp = await client.request(
-                method, url, headers=self._headers(), **kwargs
-            )
+            resp = await client.request(method, url, headers=self._headers(), **kwargs)
         except httpx.TimeoutException as exc:
             raise BrokerAPIError(
                 BrokerErrorCode.NETWORK_TIMEOUT,

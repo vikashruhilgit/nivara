@@ -198,7 +198,13 @@ async def test_alpaca_timeout_maps_to_network_timeout() -> None:
 
 
 def test_broker_error_codes_cover_required_set() -> None:
-    required = {"AUTH_EXPIRED", "RATE_LIMITED", "INSTRUMENT_UNKNOWN", "UPSTREAM_DOWN", "NETWORK_TIMEOUT"}
+    required = {
+        "AUTH_EXPIRED",
+        "RATE_LIMITED",
+        "INSTRUMENT_UNKNOWN",
+        "UPSTREAM_DOWN",
+        "NETWORK_TIMEOUT",
+    }
     assert required <= {c.value for c in BrokerErrorCode}
 
 
