@@ -98,3 +98,14 @@ Subtask 1 (scheduler core) ──┬──→ Subtask 2 (in-session tasks) ─�
 ```
 /supervisor job: .supervisor/jobs/pending/2026-04-11-m2-14-celery-scheduler.md
 ```
+
+## Outcome
+- **Status:** completed
+- **Completed:** 2026-04-14T00:00:00Z
+- **PR:** https://github.com/vikashruhilgit/nivara/pull/14
+- **Branch:** feat/m2-14-celery-scheduler
+- **Files changed:** 8 (7 created, 1 modified)
+- **Heal loop ran:** true
+- **Heal decision:** PASS
+- **Heal iterations:** 1
+- **Summary:** Session-aware Celery Beat scheduler with per-exchange in-session tasks (5-min indicator recalc, hourly portfolio sync), post-close batch triggered by actual session close (half-day + DST aware), always-running tasks (news, FX, corporate actions), weekly calendar drift verification, and Redis dedupe. 6 scheduler tests pass; ruff + mypy --strict clean. Self-heal pass addressed 3 lint/type issues (StrEnum migration, FxRefreshService/FredEcbClient constructor args, unused type:ignore).
