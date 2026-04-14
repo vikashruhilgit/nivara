@@ -92,3 +92,10 @@ Subtask 2 ────────────────┘──→ Subtask 7
 ```
 /supervisor job: .supervisor/jobs/pending/2026-04-10-m1-7-mobile-shell.md
 ```
+
+## Outcome
+- **Status:** done
+- **Branch:** feat/m1-7-mobile-shell (merged to main at 3c47d6b)
+- **Implementation commit:** b590c18 — feat(mobile): app shell with auth, tabs, broker connect, portfolio
+- **heal_loop_ran:** false (finalized retroactively; self-heal tail did not run in original session)
+- **Notes:** All 7 subtasks delivered; deps present in mobile/package.json. Job file moved to done/ retroactively.
