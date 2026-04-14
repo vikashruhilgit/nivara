@@ -37,6 +37,7 @@ from decimal import Decimal
 from typing import Any
 
 from backend.app.analysis.fundamental import FundamentalScore, score_fundamentals
+from backend.app.analysis.risk import RiskAnalysis, analyze_risk
 from backend.app.analysis.sentiment import SentimentResult, compute_sentiment
 from backend.app.analysis.technical import (
     TechnicalAnalysis,
@@ -55,6 +56,14 @@ from backend.app.db import get_session
 from backend.app.models.instruments import Instrument
 from backend.app.models.users import User
 from backend.app.redis_client import get_redis
+from backend.app.schemas.risk import (
+    DataQuality,
+    DrawdownResult,
+    RiskAnalysisResponse,
+    RiskScoreResult,
+    VaRResult,
+    VolatilityResult,
+)
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 from sqlalchemy import select
@@ -493,10 +502,122 @@ async def get_technical_analysis(
     return _technical_to_response(symbol=symbol_u, exchange=exchange_u, analysis=analysis)
 
 
+# ---- Risk analysis ---------------------------------------------------------
+
+
+def _risk_to_response(
+    *, symbol: str, exchange: str, analysis: RiskAnalysis
+) -> RiskAnalysisResponse:
+    """Project the analysis-layer dataclass onto the Pydantic response model.
+
+    Keeping this projection close to the route keeps the analysis engine free
+    of any FastAPI/Pydantic imports so it remains usable from Celery workers
+    and CLI smoke tests.
+    """
+    return RiskAnalysisResponse(
+        symbol=symbol,
+        exchange=exchange,
+        bars_analyzed=analysis.bars_analyzed,
+        var=VaRResult(
+            status=analysis.var.status,
+            var_95=analysis.var.var_95,
+            var_99=analysis.var.var_99,
+            lookback_days=analysis.var.lookback_days,
+        ),
+        volatility=VolatilityResult(
+            vol_30d=analysis.volatility.vol_30d,
+            vol_90d=analysis.volatility.vol_90d,
+            estimated=analysis.volatility.estimated,
+        ),
+        drawdown=DrawdownResult(
+            drawdown=analysis.drawdown.drawdown,
+            peak_price=analysis.drawdown.peak_price,
+            current_price=analysis.drawdown.current_price,
+        ),
+        risk_score=RiskScoreResult(
+            score=analysis.risk_score.score,
+            proxy_based=analysis.risk_score.proxy_based,
+            sector=analysis.risk_score.sector,
+        ),
+        data_quality=DataQuality(
+            observations=analysis.data_quality.observations,
+            forward_filled_days=analysis.data_quality.forward_filled_days,
+            excluded_from_correlation=analysis.data_quality.excluded_from_correlation,
+            notes=list(analysis.data_quality.notes),
+        ),
+    )
+
+
+@router.get(
+    "/{symbol}/risk",
+    response_model=RiskAnalysisResponse,
+)
+async def get_risk_analysis(
+    symbol: str,
+    exchange: str = Query(
+        ...,
+        description="Listing exchange (e.g. NASDAQ, NSE). Resolves the Instrument row.",
+        min_length=2,
+        max_length=16,
+    ),
+    bars: int = Query(
+        252,
+        description="Number of close-price bars to read from price_history (default: 1 trading year).",
+        ge=30,
+        le=1000,
+    ),
+    sector: str | None = Query(
+        None,
+        description=(
+            "Optional sector override used for the insufficient-data risk-score "
+            "proxy. When omitted the engine falls back to a generic default."
+        ),
+        max_length=64,
+    ),
+    session: AsyncSession = Depends(get_session),
+    _user: User = Depends(get_current_user),
+) -> RiskAnalysisResponse:
+    """Compute VaR, volatility, drawdown, and a composite risk score.
+
+    Reads up to ``bars`` closes from :class:`PriceHistory`, runs the risk
+    engine, and returns the full panel plus data-quality flags. The sector
+    query parameter is plumbed through to the score fallback so callers
+    that know the sector externally (e.g. portfolio views) can get a
+    sharper proxy when history is thin.
+    """
+    symbol_u = symbol.upper().strip()
+    exchange_u = exchange.upper().strip()
+
+    stmt = select(Instrument).where(
+        Instrument.symbol == symbol_u,
+        Instrument.exchange == exchange_u,
+    )
+    instrument = (await session.execute(stmt)).scalar_one_or_none()
+    if instrument is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"instrument not found: {symbol_u} on {exchange_u}",
+        )
+
+    ohlcv = await load_ohlcv_from_db(session, instrument.id, bars=bars)
+    if ohlcv.empty:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"no price history for {symbol_u} on {exchange_u}",
+        )
+
+    # The risk engine works off a close-price series; pull that out of the
+    # OHLCV frame so the engine itself stays transport-agnostic.
+    close_series = ohlcv["close"].astype(float)
+    analysis = analyze_risk(close_series, sector=sector)
+    return _risk_to_response(symbol=symbol_u, exchange=exchange_u, analysis=analysis)
+
+
 __all__ = [
     "FundamentalAnalysisResponse",
     "FundamentalComponents",
     "FundamentalRawData",
+    "RiskAnalysisResponse",
     "TechnicalAnalysisResponse",
     "TechnicalIndicator",
     "router",
