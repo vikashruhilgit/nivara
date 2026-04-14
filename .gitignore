@@ -35,9 +35,6 @@ docker-compose.override.yml
 *.key
 credentials.json
 
-# Supervisor state
-.supervisor/
-
 # Python test/coverage artifacts
 .pytest_cache/
 .coverage

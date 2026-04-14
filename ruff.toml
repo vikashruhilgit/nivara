@@ -8,10 +8,11 @@ select = ["E", "F", "W", "I", "UP", "B", "SIM", "ASYNC", "S", "C4"]
 ignore = [
     "E501",  # line length handled by formatter
     "S101",  # allow asserts in tests
+    "B008",  # FastAPI Depends() idiom in argument defaults
 ]
 
 [lint.per-file-ignores]
-"backend/tests/**" = ["S101", "S105", "S106"]
+"backend/tests/**" = ["S101", "S105", "S106", "S107"]
 
 [format]
 quote-style = "double"
