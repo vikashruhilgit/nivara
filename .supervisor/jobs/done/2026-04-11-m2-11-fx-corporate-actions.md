@@ -88,3 +88,14 @@ Subtask 3 (Yahoo adj detection) ──┬──→ Subtask 4 (broker anomaly) �
 ```
 /supervisor job: .supervisor/jobs/pending/2026-04-11-m2-11-fx-corporate-actions.md
 ```
+
+## Outcome
+- **Status:** completed
+- **Completed:** 2026-04-14T00:00:00Z
+- **PR:** https://github.com/vikashruhilgit/nivara/pull/11
+- **Branch:** feat/m2-11-fx-corporate-actions
+- **Files changed:** 7 (1379 insertions, 14 deletions)
+- **Heal loop ran:** true
+- **Heal decision:** PASS
+- **Heal iterations:** 1
+- **Summary:** FRED+ECB FX pipeline (USD/INR), corporate actions detection (Yahoo adj factors + broker sync anomaly), OHLCV adjustment with cache invalidation. 158/158 tests pass; ruff + mypy --strict clean.
