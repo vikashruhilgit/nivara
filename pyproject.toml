@@ -3,7 +3,7 @@ name = "investiq-backend"
 version = "0.1.0"
 description = "InvestIQ — AI-driven investment platform backend (FastAPI)"
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 license = { text = "Proprietary" }
 authors = [{ name = "InvestIQ" }]
 
@@ -31,6 +31,7 @@ dependencies = [
     "praw>=7.7.1",
     "transformers>=4.40.0",
     "torch>=2.2.0",
+    "pandas-ta>=0.3.14b",
 ]
 
 [project.optional-dependencies]
@@ -88,7 +89,7 @@ module = ["celery", "celery.*"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
-module = ["yfinance", "yfinance.*", "pandas", "pandas.*"]
+module = ["yfinance", "yfinance.*", "pandas", "pandas.*", "pandas_ta", "pandas_ta.*"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
