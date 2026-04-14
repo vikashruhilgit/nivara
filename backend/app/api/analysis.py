@@ -34,9 +34,15 @@ from __future__ import annotations
 
 from datetime import date, datetime
 from decimal import Decimal
+from typing import Any
 
 from backend.app.analysis.fundamental import FundamentalScore, score_fundamentals
 from backend.app.analysis.sentiment import SentimentResult, compute_sentiment
+from backend.app.analysis.technical import (
+    TechnicalAnalysis,
+    analyze_with_cache,
+    load_ohlcv_from_db,
+)
 from backend.app.auth.dependencies import get_current_user
 from backend.app.config import get_settings
 from backend.app.data.edgar import EdgarClient, EdgarFundamentals
@@ -45,10 +51,14 @@ from backend.app.data.gnews import GNewsClient
 from backend.app.data.reddit import RedditClient
 from backend.app.data.rss import RssFallbackClient
 from backend.app.data.yahoo import YahooProvider
+from backend.app.db import get_session
+from backend.app.models.instruments import Instrument
 from backend.app.models.users import User
 from backend.app.redis_client import get_redis
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 router = APIRouter(prefix="/api/analysis", tags=["analysis"])
 
@@ -365,9 +375,129 @@ async def get_sentiment_analysis(
     )
 
 
+# ---- Technical analysis ----------------------------------------------------
+
+
+class TechnicalIndicator(BaseModel):
+    """Single indicator in the technical response.
+
+    ``value`` is the normalised signal in ``[-1, +1]``. ``raw`` is the
+    underlying indicator reading (RSI, histogram, %B, etc.) for UI display.
+    ``insufficient_data`` is ``True`` when the OHLCV history was too short
+    for this indicator's lookback window.
+    """
+
+    value: float | None = Field(None, ge=-1, le=1)
+    raw: float | None = None
+    insufficient_data: bool = False
+
+
+class TechnicalAnalysisResponse(BaseModel):
+    """GET /api/analysis/{symbol}/technical response body."""
+
+    symbol: str
+    exchange: str
+    bars_analyzed: int
+    composite_score: float | None = Field(None, ge=-1, le=1)
+    action: str | None = Field(
+        None,
+        description="strong_sell | sell | hold | buy | strong_buy (None when no indicators scored).",
+    )
+    insufficient_data_flags: list[str] = Field(default_factory=list)
+    rsi: TechnicalIndicator
+    macd: TechnicalIndicator
+    ma_alignment: TechnicalIndicator
+    bollinger: TechnicalIndicator
+    volume: TechnicalIndicator
+    atr: TechnicalIndicator
+
+
+def _technical_to_response(
+    *, symbol: str, exchange: str, analysis: TechnicalAnalysis
+) -> TechnicalAnalysisResponse:
+    def _ind(r: Any) -> TechnicalIndicator:
+        return TechnicalIndicator(
+            value=r.value,
+            raw=r.raw,
+            insufficient_data=r.insufficient_data,
+        )
+
+    return TechnicalAnalysisResponse(
+        symbol=symbol,
+        exchange=exchange,
+        bars_analyzed=analysis.bars_analyzed,
+        composite_score=analysis.composite_score,
+        action=analysis.action,
+        insufficient_data_flags=analysis.insufficient_data_flags,
+        rsi=_ind(analysis.rsi),
+        macd=_ind(analysis.macd),
+        ma_alignment=_ind(analysis.ma_alignment),
+        bollinger=_ind(analysis.bollinger),
+        volume=_ind(analysis.volume),
+        atr=_ind(analysis.atr),
+    )
+
+
+@router.get(
+    "/{symbol}/technical",
+    response_model=TechnicalAnalysisResponse,
+)
+async def get_technical_analysis(
+    symbol: str,
+    exchange: str = Query(
+        ...,
+        description="Listing exchange (e.g. NASDAQ, NSE). Resolves the Instrument row.",
+        min_length=2,
+        max_length=16,
+    ),
+    bars: int = Query(
+        252,
+        description="Number of OHLCV bars to read from price_history (default: 1 trading year).",
+        ge=30,
+        le=1000,
+    ),
+    session: AsyncSession = Depends(get_session),
+    redis: Any = Depends(get_redis),
+    _user: User = Depends(get_current_user),
+) -> TechnicalAnalysisResponse:
+    """Compute composite technical signal from cached OHLCV history.
+
+    Reads up to ``bars`` rows from :class:`PriceHistory` (populated by the
+    data-provider job) and runs the 6-indicator pipeline. Indicators are
+    cached in Redis for 5 minutes keyed by ``tech:{instrument_id}:{name}``;
+    on a full cache hit the indicator math is skipped and only the composite
+    is recomputed.
+    """
+    symbol_u = symbol.upper().strip()
+    exchange_u = exchange.upper().strip()
+
+    stmt = select(Instrument).where(
+        Instrument.symbol == symbol_u,
+        Instrument.exchange == exchange_u,
+    )
+    instrument = (await session.execute(stmt)).scalar_one_or_none()
+    if instrument is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"instrument not found: {symbol_u} on {exchange_u}",
+        )
+
+    ohlcv = await load_ohlcv_from_db(session, instrument.id, bars=bars)
+    if ohlcv.empty:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"no price history for {symbol_u} on {exchange_u}",
+        )
+
+    analysis = await analyze_with_cache(redis, instrument.id, ohlcv)
+    return _technical_to_response(symbol=symbol_u, exchange=exchange_u, analysis=analysis)
+
+
 __all__ = [
     "FundamentalAnalysisResponse",
     "FundamentalComponents",
     "FundamentalRawData",
+    "TechnicalAnalysisResponse",
+    "TechnicalIndicator",
     "router",
 ]
