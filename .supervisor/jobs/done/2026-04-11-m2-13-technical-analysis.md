@@ -88,3 +88,14 @@ Note: Subtasks 2, 3, 4 all modify `technical.py` — must serialize. Single work
 ```
 /supervisor job: .supervisor/jobs/pending/2026-04-11-m2-13-technical-analysis.md
 ```
+
+## Outcome
+- **Status:** completed
+- **Completed:** 2026-04-14T00:00:00Z
+- **PR:** https://github.com/vikashruhilgit/nivara/pull/13
+- **Branch:** feat/m2-13-technical-analysis
+- **Files changed:** 7 (pyproject.toml, uv.lock, backend/app/api/analysis.py, backend/app/analysis/technical.py, backend/tests/test_technical.py, backend/tests/test_technical_api.py, job brief)
+- **Heal loop ran:** true
+- **Heal decision:** PASS
+- **Heal iterations:** 0 (inline integration review; no fixable new+HIGH issues found)
+- **Summary:** Technical analysis engine with 6 pandas-ta indicators, composite scoring, Redis caching (5m TTL), and FastAPI endpoint. Resumed session fixed two regressions: (1) pyproject requires-python bumped to >=3.12 so pandas-ta resolves cleanly; (2) one mypy `sum()` generator-type ambiguity. Redis DI via `Depends(get_redis)` was already correctly applied by the prior worker. All 207 backend tests pass; ruff + mypy clean. Follow-up: CLAUDE.md still says Python 3.11 — needs doc update.
