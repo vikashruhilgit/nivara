@@ -36,9 +36,14 @@ from datetime import date, datetime
 from decimal import Decimal
 
 from backend.app.analysis.fundamental import FundamentalScore, score_fundamentals
+from backend.app.analysis.sentiment import SentimentResult, compute_sentiment
 from backend.app.auth.dependencies import get_current_user
+from backend.app.config import get_settings
 from backend.app.data.edgar import EdgarClient, EdgarFundamentals
 from backend.app.data.errors import DataProviderError, SymbolNotFoundError
+from backend.app.data.gnews import GNewsClient
+from backend.app.data.reddit import RedditClient
+from backend.app.data.rss import RssFallbackClient
 from backend.app.data.yahoo import YahooProvider
 from backend.app.models.users import User
 from backend.app.redis_client import get_redis
@@ -111,6 +116,24 @@ def _get_edgar_client() -> EdgarClient:
 
 def _get_yahoo_provider() -> YahooProvider:
     return YahooProvider(redis=get_redis())
+
+
+def _get_gnews_client() -> GNewsClient:
+    settings = get_settings()
+    return GNewsClient(api_key=settings.gnews_api_key, redis=get_redis())
+
+
+def _get_rss_client() -> RssFallbackClient:
+    return RssFallbackClient()
+
+
+def _get_reddit_client() -> RedditClient:
+    settings = get_settings()
+    return RedditClient(
+        client_id=settings.reddit_client_id,
+        client_secret=settings.reddit_client_secret,
+        user_agent=settings.reddit_user_agent,
+    )
 
 
 # ---- Route -----------------------------------------------------------------
@@ -305,6 +328,40 @@ def _to_response(
             cash_flow=score.cash_flow,
         ),
         raw=raw,
+    )
+
+
+@router.get(
+    "/{symbol}/sentiment",
+    response_model=SentimentResult,
+)
+async def get_sentiment_analysis(
+    symbol: str,
+    gnews: GNewsClient = Depends(_get_gnews_client),
+    rss: RssFallbackClient = Depends(_get_rss_client),
+    reddit: RedditClient = Depends(_get_reddit_client),
+    _user: User = Depends(get_current_user),
+) -> SentimentResult:
+    """Return composite sentiment (-1 to +1) with news/social/macro breakdown.
+
+    Each source degrades independently (per AC #3 and #6): GNews rate-limit
+    falls back to RSS, Reddit auth failures redistribute social weight to
+    news + macro, and missing FRED data redistributes macro weight to
+    news + social.
+    """
+    symbol_u = symbol.upper().strip()
+    if not symbol_u:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="symbol is required")
+    # FRED observations are threaded through only when a prior job has
+    # cached them; the sentiment engine already defaults macro to neutral
+    # when this is None (AC #6).
+    return await compute_sentiment(
+        symbol_u,
+        gnews=gnews,
+        rss=rss,
+        reddit=reddit,
+        redis=get_redis(),
+        fred_observations=None,
     )
 
 

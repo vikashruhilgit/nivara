@@ -75,6 +75,19 @@ class Settings(BaseSettings):
     # (see m2-11 risk assessment).
     corp_action_adjust_history_days: int = 365 * 2
 
+    # News + sentiment pipeline (m2-12).
+    #
+    # GNews free tier caps at 100 req/day; we track usage in Redis and fall
+    # back to RSS when the budget is hit. Missing key → RSS-only path.
+    gnews_api_key: str | None = None
+
+    # Reddit (PRAW) social-sentiment source — fully degradable (20% weight).
+    # When either ID/secret is None, the sentiment engine redistributes the
+    # social weight to news + macro per AC #3.
+    reddit_client_id: str | None = None
+    reddit_client_secret: str | None = None
+    reddit_user_agent: str = "investiq-sentiment/0.1 (by /u/investiq_bot)"
+
 
 @lru_cache
 def get_settings() -> Settings:

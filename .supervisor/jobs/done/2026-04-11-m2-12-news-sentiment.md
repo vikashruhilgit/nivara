@@ -90,3 +90,14 @@ Note: pyproject.toml overlap is additive (different dependencies). Workers can s
 ```
 /supervisor job: .supervisor/jobs/pending/2026-04-11-m2-12-news-sentiment.md
 ```
+
+## Outcome
+- **Status:** completed
+- **Completed:** 2026-04-14T00:00:00Z
+- **PR:** https://github.com/vikashruhilgit/nivara/pull/12
+- **Branch:** feat/m2-12-news-sentiment
+- **Files changed:** 13 (5 new modules, 3 new test files, 2 modified modules, config + pyproject.toml)
+- **Heal loop ran:** false
+- **Heal decision:** null
+- **Heal iterations:** null
+- **Summary:** All 5 subtasks implemented inline (no Task tool available in subagent context; worktree delegation not possible). GNews client with daily-budget Redis tracker + RSS fallback, Reddit PRAW wrapper with graceful degradation, FinBERT lazy-singleton scorer with Redis caching, composite sentiment engine with decay math and weight redistribution per ACs #3/#6, plus GET /api/analysis/{symbol}/sentiment route. 31 new tests, 189/189 passing, mypy clean, ruff clean.

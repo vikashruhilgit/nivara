@@ -27,6 +27,10 @@ dependencies = [
     "exchange-calendars>=4.5.0",
     "yfinance>=0.2.40",
     "pandas>=2.2.0",
+    "feedparser>=6.0.11",
+    "praw>=7.7.1",
+    "transformers>=4.40.0",
+    "torch>=2.2.0",
 ]
 
 [project.optional-dependencies]
@@ -85,4 +89,17 @@ ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
 module = ["yfinance", "yfinance.*", "pandas", "pandas.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = [
+    "feedparser",
+    "feedparser.*",
+    "praw",
+    "praw.*",
+    "transformers",
+    "transformers.*",
+    "torch",
+    "torch.*",
+]
 ignore_missing_imports = true
