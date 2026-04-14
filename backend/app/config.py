@@ -65,6 +65,16 @@ class Settings(BaseSettings):
     zerodha_api_key: str | None = None
     zerodha_api_secret: str | None = None
 
+    # FRED (Federal Reserve Economic Data) — primary FX source for USD/INR.
+    # Register a free key at https://fred.stlouisfed.org/docs/api/api_key.html.
+    # When unset, the FX refresh pipeline falls back to ECB.
+    fred_api_key: str | None = None
+
+    # Corporate actions / OHLCV adjustment tunables.
+    # Cap the retroactive adjustment window to keep bulk UPDATEs bounded
+    # (see m2-11 risk assessment).
+    corp_action_adjust_history_days: int = 365 * 2
+
 
 @lru_cache
 def get_settings() -> Settings:
