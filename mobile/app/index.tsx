@@ -1,28 +1,15 @@
-import { StyleSheet, Text, View } from 'react-native';
+import { Redirect } from 'expo-router';
 
-export default function Home() {
-  return (
-    <View style={styles.container}>
-      <Text style={styles.title}>InvestIQ</Text>
-      <Text style={styles.subtitle}>AI-driven investment platform</Text>
-    </View>
-  );
+import { useAuthStore } from '../src/store/auth';
+
+/**
+ * Root redirect — sends users to the correct group based on auth state.
+ * The AuthGuard in `_layout.tsx` handles the hydration case; this component
+ * just picks a target once `status` is settled.
+ */
+export default function Index(): React.ReactElement | null {
+  const status = useAuthStore((s) => s.status);
+  if (status === 'authenticated') return <Redirect href="/(tabs)/portfolio" />;
+  if (status === 'unauthenticated') return <Redirect href="/(auth)/sign-in" />;
+  return null;
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 24,
-  },
-  title: {
-    fontSize: 28,
-    fontWeight: '700',
-    marginBottom: 8,
-  },
-  subtitle: {
-    fontSize: 16,
-    opacity: 0.7,
-  },
-});
