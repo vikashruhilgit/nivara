@@ -86,3 +86,16 @@ Subtask 1 (calendar service) ──┬──→ Subtask 2 (API endpoints)
 ```
 /supervisor job: .supervisor/jobs/pending/2026-04-10-m1-6-market-calendar.md
 ```
+
+## Outcome
+- **Status:** completed
+- **Completed:** 2026-04-14T00:00:00Z
+- **PR:** https://github.com/vikashruhilgit/nivara/pull/6
+- **Branch:** feat/m1-6-market-calendar
+- **Files changed:** 10 (3 modified, 7 created)
+- **Heal loop ran:** true
+- **Heal decision:** PASS
+- **Heal iterations:** 0
+- **Heal fixable issues fixed:** 0
+- **Heal remaining issues:** 0
+- **Summary:** Implemented market calendar service wrapping exchange_calendars (XNYS/XNAS/XBOM) with calendar_overrides merge (override wins), FastAPI router at /api/calendar/* (is-open, session-hours, next-close) guarded by bearer auth, auto-override upsert on broker "market closed" reports (Postgres ON CONFLICT + SQLite fallback), and a Celery stub for the weekly verification job. All 6 ACs covered by 13 new tests (74 total pass); ruff/format/mypy clean. Resumed from mid-execution timeout — no code changes needed at resume, only quality gates, commit, push, PR. Self-heal holistic review passed without modifications.
