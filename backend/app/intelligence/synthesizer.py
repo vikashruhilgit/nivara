@@ -24,10 +24,12 @@ sum to 1.0. If no engine is available we return ``status="stale"``.
 Staleness (AC #5-#8) is computed as the *maximum* age across available
 engines' ``computed_at`` timestamps. The confidence penalty schedule:
 
-* ``< 1h``  — no penalty
-* ``1-4h``  — −5 %
-* ``4-24h`` — −15 %
-* ``> 24h`` — recommendation suppressed (``status="stale"``).
+* ``< 1h``    — no penalty (fresh)
+* ``1-6h``   — −5 %  (aging)
+* ``6-24h``  — −15 % (stale)
+* ``≥ 24h``  — recommendation suppressed (``status="stale"``).
+
+Thresholds live in :mod:`backend.app.intelligence.staleness`.
 
 Action thresholds on the composite score (AC #2):
 
@@ -57,6 +59,11 @@ from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
+from backend.app.intelligence.staleness import (
+    StalenessLevel,
+    apply_confidence_reduction,
+    classify_staleness,
+)
 from backend.app.schemas.recommendation import EngineScores, RecommendationResponse
 
 if TYPE_CHECKING:
@@ -105,18 +112,6 @@ def _action_for(composite: float) -> str:
     if composite >= -0.6:
         return "sell"
     return "strong_sell"
-
-
-def _staleness_penalty(age: timedelta) -> int:
-    """Return the confidence penalty (percentage points) for a given age."""
-    hours = age.total_seconds() / 3600.0
-    if hours < 1.0:
-        return 0
-    if hours < 4.0:
-        return 5
-    if hours <= 24.0:
-        return 15
-    return -1  # sentinel: caller suppresses recommendation entirely
 
 
 def _top_factors(normalized: dict[str, float]) -> list[str]:
@@ -231,22 +226,20 @@ async def synthesize(
             reason="no_engine_data",
             engine_scores=engine_scores,
             computed_at=now,
+            staleness=StalenessLevel.SUPPRESSED,
         )
 
-    # Staleness gate.
+    # Staleness gate — classify based on the oldest engine timestamp.
     available_times = [computed_at_per_engine[k] for k in normalized if k in computed_at_per_engine]
-    if available_times:
-        oldest = min(available_times)
-        age = now - oldest
-    else:
-        age = timedelta(0)
-    penalty = _staleness_penalty(age)
-    if penalty < 0:
+    oldest = min(available_times) if available_times else now
+    staleness_level = classify_staleness(oldest, now)
+    if staleness_level is StalenessLevel.SUPPRESSED:
         return RecommendationResponse(
             status="stale",
             reason="data_too_stale",
             engine_scores=engine_scores,
             computed_at=now,
+            staleness=staleness_level,
         )
 
     det_weights = _renormalize_weights(set(normalized.keys()))
@@ -266,7 +259,7 @@ async def synthesize(
     # Confidence from engine dispersion around the composite.
     abs_dev = sum(abs(v - composite) for v in normalized.values()) / max(len(normalized), 1)
     confidence_raw = 100.0 * (1.0 - min(abs_dev, 1.0))
-    confidence = _clamp(confidence_raw - penalty, 0.0, 100.0)
+    confidence = apply_confidence_reduction(_clamp(confidence_raw, 0.0, 100.0), staleness_level)
 
     top_factors = _top_factors(normalized)
     rationale: str | None = None
@@ -312,6 +305,7 @@ async def synthesize(
         computed_at=now,
         explainer_used=explainer_used,
         ai_blended=ai_blended,
+        staleness=staleness_level,
     )
 
 
