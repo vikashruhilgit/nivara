@@ -34,6 +34,17 @@ export interface Position {
   unrealized_pl: number;
   unrealized_pl_pct: number;
   currency: string;
+  /**
+   * Optional FX impact attribution for cross-currency holdings.
+   * Populated by backend when the position's `currency` differs from the
+   * portfolio base currency. Shape mirrors the backend `FxAttribution` schema.
+   */
+  fxAttribution?: {
+    stock_return_pct: number;
+    fx_impact_pct: number;
+    base_return_pct: number;
+    note_text: string;
+  };
 }
 
 export function usePortfolioSummary(): UseQueryResult<PortfolioSummary, Error> {
