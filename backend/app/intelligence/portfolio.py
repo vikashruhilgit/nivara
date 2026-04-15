@@ -32,6 +32,38 @@ Empty portfolios
 The engine is tolerant: with zero positions it returns a fully-zeroed
 response (no exception, no division by zero). The API layer surfaces that
 directly so callers can render an onboarding state.
+
+Portfolio return placeholder
+----------------------------
+Until the per-position price pipeline lands, ``_portfolio_return_base``
+and per-market portfolio returns are hard-coded to ``0.0``. The response
+carries two explicit staleness flags so clients can suppress misleading
+alpha figures:
+
+* :attr:`PortfolioIntelligenceResponse.portfolio_return_stale` — always
+  ``True`` today (placeholder); also ``True`` for empty portfolios.
+* :attr:`PerMarketAlpha.portfolio_return_stale` — always ``True`` today.
+
+Callers MUST hide ``portfolio_alpha`` / ``PerMarketAlpha.alpha`` when the
+corresponding ``*_stale`` flag is set; otherwise the displayed alpha is
+effectively ``-benchmark_return`` and misleading.
+
+Follow-ups (out of scope for this heal iteration)
+-------------------------------------------------
+* SQLite testcontainer for engine tests (currently in-memory with hand-rolled
+  table creation).
+* Rename ``avg_cost`` → ``cost_basis`` across the position / engine code path
+  to match accounting terminology.
+
+Exchange classification
+-----------------------
+Only an explicit US allow-list (NASDAQ, NYSE, AMEX, ARCA, BATS) maps to
+``"US"``. NSE/BSE map to ``"IN"``. Anything else (e.g. LSE, TSX) is bucketed
+as ``"OTHER"`` — it counts toward sector allocation and the geography split
+(``other_pct``) but is **excluded** from ``per_market_alpha`` and the
+blended benchmark (no trusted benchmark mapping yet). The raw exchange
+codes that fell into OTHER are surfaced on the response as
+``unclassified_markets`` for observability.
 """
 
 from __future__ import annotations
@@ -67,16 +99,31 @@ SECTOR_CONCENTRATION_THRESHOLD: float = 0.40
 #: mistake these nudges for personalised investment advice (Risk #4).
 DISCLAIMER_TEXT: str = "For informational purposes only. Not investment advice."
 
-#: Exchange → market code. NSE / BSE → India, everything else → US. This is a
-#: deliberate MVP simplification; a future milestone adds LSE / TSX / etc.
+#: Exchange → market code. NSE / BSE → India. An explicit US allow-list maps
+#: to US. Everything else → OTHER (excluded from per-market alpha + blended
+#: benchmark; still counts in sector allocation and geography split).
 _IN_EXCHANGES: frozenset[str] = frozenset({"NSE", "BSE"})
+_US_EXCHANGES: frozenset[str] = frozenset({"NASDAQ", "NYSE", "AMEX", "ARCA", "BATS"})
+
+#: Markets for which we have a trusted benchmark + currency mapping.
+_BENCHMARKED_MARKETS: frozenset[str] = frozenset({"IN", "US"})
 
 
 def _market_for_exchange(exchange: str | None) -> str:
-    """Classify a position's exchange into a coarse market bucket."""
-    if exchange and exchange.upper() in _IN_EXCHANGES:
+    """Classify a position's exchange into a coarse market bucket.
+
+    Returns one of ``"IN"``, ``"US"``, or ``"OTHER"``. OTHER positions are
+    included in sector allocation + geography but excluded from per-market
+    alpha and the blended benchmark (no trusted benchmark mapping).
+    """
+    if not exchange:
+        return "OTHER"
+    code = exchange.upper()
+    if code in _IN_EXCHANGES:
         return "IN"
-    return "US"
+    if code in _US_EXCHANGES:
+        return "US"
+    return "OTHER"
 
 
 def _sector_for_instrument(instrument: Instrument) -> str:
@@ -94,6 +141,7 @@ class _EnrichedPosition:
     __slots__ = (
         "instrument_id",
         "symbol",
+        "exchange",
         "market",
         "sector",
         "native_currency",
@@ -106,6 +154,7 @@ class _EnrichedPosition:
         *,
         instrument_id: UUID,
         symbol: str,
+        exchange: str | None,
         market: str,
         sector: str,
         native_currency: str,
@@ -114,6 +163,7 @@ class _EnrichedPosition:
     ) -> None:
         self.instrument_id = instrument_id
         self.symbol = symbol
+        self.exchange = exchange
         self.market = market
         self.sector = sector
         self.native_currency = native_currency
@@ -123,6 +173,10 @@ class _EnrichedPosition:
 
 class PortfolioIntelligenceService:
     """Compose diversification + alpha + rebalancing suggestions for a user."""
+
+    #: Set once per service instance after the first placeholder-return log,
+    #: so we don't spam WARN lines for every call / every market.
+    _placeholder_warning_emitted: bool = False
 
     def __init__(
         self,
@@ -134,6 +188,7 @@ class PortfolioIntelligenceService:
         self._session = session
         self._fx = fx
         self._benchmark = benchmark_service
+        self._placeholder_warning_emitted = False
 
     async def compute(
         self,
@@ -147,6 +202,8 @@ class PortfolioIntelligenceService:
         positions = await self._load_positions(user_id=user_id, base_currency=base_ccy)
 
         # Empty portfolio: return all-zero response (no division by zero).
+        # portfolio_return_stale stays True — conservatively, no return was
+        # computed and the UI must not render a 0% delta against the benchmark.
         if not positions:
             return PortfolioIntelligenceResponse(
                 base_currency=base_ccy,
@@ -156,8 +213,15 @@ class PortfolioIntelligenceService:
                 blended_benchmark_return=0.0,
                 portfolio_return=0.0,
                 portfolio_alpha=0.0,
+                portfolio_return_stale=True,
+                unclassified_markets=[],
                 rebalancing_suggestions=[],
             )
+
+        # Collect unclassified exchange codes (OTHER bucket) for observability.
+        unclassified_markets = sorted(
+            {(p.exchange or "").upper() for p in positions if p.market == "OTHER" and p.exchange}
+        )
 
         total_base = sum((p.market_value_base for p in positions), Decimal("0"))
 
@@ -195,6 +259,8 @@ class PortfolioIntelligenceService:
             blended_benchmark_return=blended_benchmark,
             portfolio_return=portfolio_return,
             portfolio_alpha=portfolio_alpha,
+            portfolio_return_stale=True,
+            unclassified_markets=unclassified_markets,
             rebalancing_suggestions=rebalancing,
         )
 
@@ -242,6 +308,7 @@ class PortfolioIntelligenceService:
                 _EnrichedPosition(
                     instrument_id=instrument.id,
                     symbol=instrument.symbol,
+                    exchange=instrument.exchange,
                     market=_market_for_exchange(instrument.exchange),
                     sector=_sector_for_instrument(instrument),
                     native_currency=native_ccy,
@@ -313,7 +380,9 @@ class PortfolioIntelligenceService:
         # lets the UI render "benchmark = X%, you = 0% (data pending)" until
         # the price pipeline is plumbed in.
         result: list[PerMarketAlpha] = []
-        markets_present = {p.market for p in positions}
+        # Only emit per-market alpha for benchmarked markets. OTHER positions
+        # have no trusted benchmark mapping yet and must be excluded.
+        markets_present = {p.market for p in positions if p.market in _BENCHMARKED_MARKETS}
 
         bench_by_market = {"IN": nifty, "US": sp500}
         for market in sorted(markets_present):
@@ -322,6 +391,7 @@ class PortfolioIntelligenceService:
                 continue
             # Portfolio return in native ccy — placeholder 0 until price history
             # per-position is wired (no FX conflation: each market stays native).
+            # portfolio_return_stale=True flags this for the UI.
             portfolio_return_native = 0.0
             bench_return_native = float(bench.total_return)
             result.append(
@@ -333,6 +403,7 @@ class PortfolioIntelligenceService:
                     benchmark_return=bench_return_native,
                     alpha=portfolio_return_native - bench_return_native,
                     stale_benchmark=bench.stale,
+                    portfolio_return_stale=True,
                 )
             )
         return result
@@ -347,9 +418,21 @@ class PortfolioIntelligenceService:
         """Portfolio return in base currency.
 
         Same placeholder story as :meth:`_per_market_alpha`: without per-position
-        price history we return 0 and let the API note the limitation. Kept as
-        a separate method so swapping in the real computation is local.
+        price history we return ``0.0`` and flag the response with
+        ``portfolio_return_stale=True`` so callers suppress the misleading
+        ``portfolio_alpha = -blended_benchmark_return`` that would otherwise
+        render. Kept as a separate method so swapping in the real computation
+        is local.
+
+        Emits a one-shot WARN log per service instance to surface the
+        placeholder in operations before the price pipeline lands.
         """
+        if not self._placeholder_warning_emitted:
+            logger.warning(
+                "portfolio_return placeholder used; price pipeline not yet"
+                " wired — response flagged stale"
+            )
+            self._placeholder_warning_emitted = True
         return 0.0
 
     async def _blended_benchmark_return(

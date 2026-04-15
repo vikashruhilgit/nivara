@@ -104,7 +104,9 @@ class BenchmarkService:
                 stale=True,
             )
 
-        total_return = (close_end / close_start) - Decimal("1") if close_start > 0 else Decimal("0")
+        total_return = (
+            (close_end / close_start) - Decimal("1") if close_start > Decimal("0") else Decimal("0")
+        )
         observation = BenchmarkReturn(
             symbol=symbol,
             currency=_symbol_currency(symbol),

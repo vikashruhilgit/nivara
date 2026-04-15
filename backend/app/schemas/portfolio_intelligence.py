@@ -18,6 +18,8 @@ Shape summary::
       "blended_benchmark_return": 0.031,
       "portfolio_return": 0.045,
       "portfolio_alpha": 0.014,
+      "portfolio_return_stale": false,
+      "unclassified_markets": [],
       "rebalancing_suggestions": [
           {"type": "sector_concentration", "sector": "Technology",
            "current_pct": 0.61,
@@ -68,6 +70,14 @@ class PerMarketAlpha(BaseModel):
     benchmark_return: float
     alpha: float = Field(..., description="portfolio_return - benchmark_return (native ccy).")
     stale_benchmark: bool = False
+    portfolio_return_stale: bool = Field(
+        default=True,
+        description=(
+            "True when portfolio_return is a placeholder (0.0) because the"
+            " per-position price pipeline is not yet wired. Callers MUST"
+            " suppress alpha rendering when this flag is True."
+        ),
+    )
 
 
 class RebalancingSuggestion(BaseModel):
@@ -94,6 +104,23 @@ class PortfolioIntelligenceResponse(BaseModel):
     blended_benchmark_return: float = 0.0
     portfolio_return: float = 0.0
     portfolio_alpha: float = 0.0
+    portfolio_return_stale: bool = Field(
+        default=True,
+        description=(
+            "True when portfolio_return (and therefore portfolio_alpha) is a"
+            " placeholder (0.0) because the per-position price pipeline is not"
+            " yet wired, OR when the portfolio is empty. Callers MUST suppress"
+            " alpha rendering when this flag is True."
+        ),
+    )
+    unclassified_markets: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Exchange codes of positions that did not map to a recognised"
+            " market (IN/US) and were bucketed as OTHER. Empty when all"
+            " positions mapped cleanly."
+        ),
+    )
     rebalancing_suggestions: list[RebalancingSuggestion] = Field(default_factory=list)
 
 

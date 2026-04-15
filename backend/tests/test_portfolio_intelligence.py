@@ -290,6 +290,9 @@ async def test_empty_portfolio_returns_zeros(db: AsyncSession) -> None:
     assert result.blended_benchmark_return == 0.0
     assert result.portfolio_return == 0.0
     assert result.portfolio_alpha == 0.0
+    # Empty portfolio is conservatively flagged stale: no return was computed.
+    assert result.portfolio_return_stale is True
+    assert result.unclassified_markets == []
     assert result.rebalancing_suggestions == []
 
 
@@ -323,6 +326,48 @@ async def test_per_market_alpha_uses_native_benchmarks(db: AsyncSession) -> None
     assert alpha_by_market["US"].benchmark_symbol == SP500_SYMBOL
     assert alpha_by_market["US"].benchmark_currency == "USD"
     assert alpha_by_market["US"].benchmark_return == pytest.approx(0.03)
+    # Portfolio return is a placeholder today — both per-market entries and
+    # the top-level response must flag stale until the price pipeline lands.
+    assert alpha_by_market["IN"].portfolio_return_stale is True
+    assert alpha_by_market["US"].portfolio_return_stale is True
+    assert result.portfolio_return_stale is True
+    # All positions are NSE/NASDAQ → no unclassified markets.
+    assert result.unclassified_markets == []
+
+
+async def test_unclassified_exchange_bucketed_as_other(db: AsyncSession) -> None:
+    """LSE position → OTHER bucket: counted in geography, excluded from alpha."""
+    user_id = uuid4()
+    conn = await _seed_connection(db, user_id=user_id)
+    us = await _seed_instrument(
+        db, symbol="US1", exchange="NASDAQ", currency="USD", sector="Technology"
+    )
+    lse = await _seed_instrument(db, symbol="LSE1", exchange="LSE", currency="USD", sector="Energy")
+    await _seed_position(
+        db, conn_id=conn.id, instrument_id=us.id, qty="1", price="100", currency="USD"
+    )
+    await _seed_position(
+        db, conn_id=conn.id, instrument_id=lse.id, qty="1", price="100", currency="USD"
+    )
+
+    service = PortfolioIntelligenceService(
+        session=db,
+        fx=FxService(db),
+        benchmark_service=_stub_benchmark_service(nifty_return=0.0, sp500_return=0.03),
+    )
+    result = await service.compute(user_id=user_id, base_currency="USD")
+
+    # Geography split includes a third OTHER bucket > 0.
+    assert "OTHER" in result.diversification.geography
+    assert result.diversification.geography["OTHER"] > 0
+    # Per-market alpha excludes OTHER — only US should be present here.
+    assert {a.market for a in result.per_market_alpha} == {"US"}
+    # Unclassified raw exchange codes are surfaced for observability.
+    assert result.unclassified_markets == ["LSE"]
+    # LSE contributes to sector allocation (Energy → OTHER bucket).
+    assert "OTHER" in result.sector_allocation
+    other_sectors = {e.sector for e in result.sector_allocation["OTHER"]}
+    assert other_sectors == {"Energy"}
 
 
 # ---- API tests -----------------------------------------------------------
@@ -408,11 +453,16 @@ async def test_get_intelligence_returns_expected_fields(
         "blended_benchmark_return",
         "portfolio_return",
         "portfolio_alpha",
+        "portfolio_return_stale",
+        "unclassified_markets",
         "rebalancing_suggestions",
     ):
         assert key in body
     assert "hhi" in body["diversification"]
     assert "geography" in body["diversification"]
+    # All NASDAQ position → no unclassified markets; placeholder return → stale.
+    assert body["unclassified_markets"] == []
+    assert body["portfolio_return_stale"] is True
 
 
 async def test_get_intelligence_requires_auth() -> None:
