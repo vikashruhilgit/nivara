@@ -40,6 +40,20 @@ class SyncResult(BaseModel):
     warnings: list[str] = Field(default_factory=list)
 
 
+class FxAttributionOut(BaseModel):
+    """Cross-currency return attribution attached to a position.
+
+    ``None`` for same-currency positions.
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    stock_return_pct: Decimal
+    fx_impact_pct: Decimal
+    base_return_pct: Decimal
+    note_text: str
+
+
 class PositionOut(BaseModel):
     """Single position with dual-currency valuation."""
 
@@ -60,6 +74,13 @@ class PositionOut(BaseModel):
     unrealized_pl_base: Decimal
     fx_rate: Decimal = Field(..., description="Native -> base conversion rate applied.")
     as_of: datetime
+    fx_attribution: FxAttributionOut | None = Field(
+        default=None,
+        description=(
+            "Cross-currency return decomposition. None when the position's "
+            "native currency matches the user's base currency."
+        ),
+    )
 
 
 class PositionsList(BaseModel):
