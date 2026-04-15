@@ -6,9 +6,10 @@ that returns fixture dicts shaped like actual Kite Connect v3 responses.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from unittest.mock import MagicMock
+from zoneinfo import ZoneInfo
 
 import pytest
 from backend.app.brokers.errors import BrokerAPIError, BrokerErrorCode
@@ -296,6 +297,70 @@ async def test_input_exception_maps_to_instrument_unknown() -> None:
     with pytest.raises(BrokerAPIError) as excinfo:
         await adapter.get_orders()
     assert excinfo.value.code == BrokerErrorCode.INSTRUMENT_UNKNOWN
+
+
+async def test_zerodha_token_expiry_preflight() -> None:
+    """Adapter short-circuits BEFORE calling Kite when issued_at is stale.
+
+    AC #4 (M4-22 S3): a token issued before the most recent 06:00 IST
+    cutoff should surface AUTH_EXPIRED without a network round-trip.
+    """
+    kite = MagicMock()
+    kite.holdings.return_value = [_HOLDING_RELIANCE]
+    kite.positions.return_value = {"net": [], "day": []}
+
+    # Yesterday 05:00 IST — clearly before today's 06:00 IST cutoff from any
+    # "now". Use a fixed IST date and convert to UTC for the adapter.
+    ist = ZoneInfo("Asia/Kolkata")
+    yesterday_5am_ist = datetime.now(ist).replace(hour=5, minute=0, second=0, microsecond=0) - (
+        timedelta(days=1)
+    )
+    stale_issued_at = yesterday_5am_ist.astimezone(UTC)
+
+    adapter = ZerodhaAdapter(
+        api_key="k",
+        api_secret="s",
+        access_token="t",
+        access_token_issued_at=stale_issued_at,
+        kite_client=kite,
+    )
+
+    with pytest.raises(BrokerAPIError) as excinfo:
+        await adapter.get_positions()
+    assert excinfo.value.code == BrokerErrorCode.AUTH_EXPIRED
+    kite.holdings.assert_not_called()
+    kite.positions.assert_not_called()
+
+
+async def test_zerodha_token_preflight_passes_when_issued_after_cutoff() -> None:
+    """A token issued after the most recent 06:00 IST cutoff is accepted."""
+    kite = MagicMock()
+    kite.holdings.return_value = []
+    kite.positions.return_value = {"net": [], "day": []}
+
+    # Now itself is strictly after the most recent cutoff, so using "now"
+    # as issued_at is always valid.
+    adapter = ZerodhaAdapter(
+        api_key="k",
+        api_secret="s",
+        access_token="t",
+        access_token_issued_at=datetime.now(UTC),
+        kite_client=kite,
+    )
+
+    positions = await adapter.get_positions()
+    assert positions == []
+    kite.holdings.assert_called_once()
+
+
+async def test_zerodha_token_preflight_skipped_without_issued_at() -> None:
+    """When issued_at is not plumbed, preflight is a no-op (fallback path)."""
+    kite = MagicMock()
+    kite.holdings.return_value = []
+    kite.positions.return_value = {"net": [], "day": []}
+    adapter = ZerodhaAdapter(api_key="k", api_secret="s", access_token="t", kite_client=kite)
+    # Must not raise — relies on reactive TokenException path only.
+    assert await adapter.get_positions() == []
 
 
 async def test_generic_exception_maps_to_upstream_down() -> None:

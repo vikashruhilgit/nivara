@@ -27,8 +27,10 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from datetime import UTC, datetime, time, timedelta
 from decimal import Decimal
 from typing import TYPE_CHECKING, Any
+from zoneinfo import ZoneInfo
 
 from backend.app.brokers.base import BrokerAdapter, BrokerFeatures
 from backend.app.brokers.errors import BrokerAPIError, BrokerErrorCode
@@ -53,6 +55,28 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# Kite Connect access tokens expire daily at 06:00 IST (Asia/Kolkata).
+# See: https://kite.trade/docs/connect/v3/user/#login-flow
+_IST = ZoneInfo("Asia/Kolkata")
+_KITE_DAILY_EXPIRY_HOUR_IST = 6
+
+
+def _last_kite_expiry_cutoff(now_utc: datetime) -> datetime:
+    """Return the most recent 06:00 IST cutoff at-or-before ``now_utc``.
+
+    Any ``access_token_issued_at`` strictly before this cutoff is stale:
+    Kite Connect expires tokens daily at 06:00 IST regardless of issue time.
+    """
+    now_ist = now_utc.astimezone(_IST)
+    todays_cutoff_ist = datetime.combine(
+        now_ist.date(), time(hour=_KITE_DAILY_EXPIRY_HOUR_IST), tzinfo=_IST
+    )
+    if now_ist >= todays_cutoff_ist:
+        cutoff_ist = todays_cutoff_ist
+    else:
+        cutoff_ist = todays_cutoff_ist - timedelta(days=1)
+    return cutoff_ist.astimezone(UTC)
+
 
 # Zerodha order status → NormalizedOrder.status.
 # Reference: https://kite.trade/docs/connect/v3/orders/#order-statuses
@@ -76,15 +100,35 @@ class ZerodhaAdapter(BrokerAdapter):
         api_key: str,
         api_secret: str,
         access_token: str,
+        access_token_issued_at: datetime | None = None,
         kite_client: KiteConnect | None = None,
     ) -> None:
         self._api_key = api_key
         self._api_secret = api_secret
         self._access_token = access_token
+        self._access_token_issued_at = access_token_issued_at
         if kite_client is None:
             kite_client = KiteConnect(api_key=api_key)
             kite_client.set_access_token(access_token)
         self._kite = kite_client
+
+    # ------------------------------------------------------------------ token expiry
+
+    def _is_token_expired(self, *, now_utc: datetime | None = None) -> bool:
+        """Return True if the stored access token is past its 06:00 IST cutoff.
+
+        Returns False when ``access_token_issued_at`` is unknown (can't
+        pre-empt; reactive TokenException → AUTH_EXPIRED still covers it).
+        """
+        if self._access_token_issued_at is None:
+            return False
+        now_utc = now_utc or datetime.now(UTC)
+        issued_at = self._access_token_issued_at
+        if issued_at.tzinfo is None:
+            # Defensive: treat naive timestamps as UTC to avoid false positives.
+            issued_at = issued_at.replace(tzinfo=UTC)
+        cutoff = _last_kite_expiry_cutoff(now_utc)
+        return issued_at < cutoff
 
     # ------------------------------------------------------------------ features
 
@@ -104,7 +148,19 @@ class ZerodhaAdapter(BrokerAdapter):
     # ------------------------------------------------------------------ helpers
 
     async def _call(self, fn: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
-        """Invoke a blocking kiteconnect call in a worker thread, translating errors."""
+        """Invoke a blocking kiteconnect call in a worker thread, translating errors.
+
+        Performs a pre-flight check against the known daily 06:00 IST expiry
+        cutoff when ``access_token_issued_at`` is plumbed through — this
+        avoids a wasted network round-trip and surfaces AUTH_EXPIRED with
+        the same code path callers already handle.
+        """
+        if self._is_token_expired():
+            raise BrokerAPIError(
+                BrokerErrorCode.AUTH_EXPIRED,
+                "Zerodha access token expired (past 06:00 IST daily cutoff)",
+                broker=self.broker_name,
+            )
         try:
             return await asyncio.to_thread(fn, *args, **kwargs)
         except TokenException as exc:

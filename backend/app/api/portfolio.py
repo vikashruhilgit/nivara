@@ -21,7 +21,7 @@ import logging
 from backend.app.auth.dependencies import get_current_user
 from backend.app.brokers.alpaca import AlpacaAdapter
 from backend.app.brokers.base import BrokerAdapter
-from backend.app.brokers.errors import BrokerAPIError
+from backend.app.brokers.errors import BrokerAPIError, BrokerErrorCode
 from backend.app.config import get_settings
 from backend.app.db import get_session
 from backend.app.models.broker_connections import BrokerConnection
@@ -144,6 +144,14 @@ async def sync_portfolio(
                 )
         except BrokerAPIError as exc:
             logger.exception("Broker sync failed: %s", exc)
+            # Surface token-expired state on the connection row so the
+            # dashboard's /api/auth/broker/connections endpoint reports
+            # ``auth_expired`` without re-hitting the broker. We piggy-back
+            # on the existing broker_conn_status_enum ("expired") rather
+            # than adding a ``last_auth_error`` column in this job.
+            if exc.code == BrokerErrorCode.AUTH_EXPIRED:
+                connection.status = "expired"
+                await session.commit()
             raise HTTPException(
                 status_code=status.HTTP_502_BAD_GATEWAY,
                 detail=f"Broker sync failed: {exc}",

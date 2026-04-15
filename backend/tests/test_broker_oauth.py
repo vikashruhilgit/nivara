@@ -14,6 +14,8 @@ from __future__ import annotations
 import base64
 import os
 from collections.abc import AsyncGenerator
+from datetime import UTC, datetime, timedelta
+from zoneinfo import ZoneInfo
 
 import fakeredis.aioredis
 import pytest
@@ -187,3 +189,113 @@ async def test_alpaca_callback_persists_encrypted_tokens(
     # And we can decrypt with the per-user key.
     pt = decrypt_token(row.access_token_encrypted, user_id=row.user_id)
     assert pt == "alpaca-access-oauth-code-12345"
+
+
+# --------------------------------------------------------------------- connections status
+
+
+async def _get_current_user_id(
+    session: AsyncSession, email: str = "broker-user@example.com"
+) -> object:
+    row = (await session.execute(select(User).where(User.email == email))).scalar_one()
+    return row.id
+
+
+async def test_connections_endpoint_reports_connected_for_active_row(
+    broker_client: tuple[AsyncClient, AsyncSession, Settings],
+) -> None:
+    client, session, _ = broker_client
+    token = await _register_and_token(client)
+
+    # Seed an active Alpaca connection with no expiry.
+    user_id = await _get_current_user_id(session)
+    conn = BrokerConnection(
+        user_id=user_id,
+        broker="alpaca",
+        account_id="paper-abc",
+        access_token_encrypted=b"ciphertext",
+        refresh_token_encrypted=b"ciphertext2",
+        status="active",
+    )
+    session.add(conn)
+    await session.commit()
+
+    resp = await client.get(
+        "/api/auth/broker/connections",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert len(body["connections"]) == 1
+    item = body["connections"][0]
+    assert item["broker"] == "alpaca"
+    assert item["status"] == "connected"
+
+
+async def test_connections_endpoint_reports_auth_expired_for_stale_zerodha(
+    broker_client: tuple[AsyncClient, AsyncSession, Settings],
+) -> None:
+    """Surface AUTH_EXPIRED to the dashboard (AC #5) — derived from
+    token_expires_at + Zerodha's 06:00 IST daily cutoff rule."""
+    client, session, _ = broker_client
+    token = await _register_and_token(client)
+
+    user_id = await _get_current_user_id(session)
+    # Set token_expires_at to yesterday 04:00 IST — strictly before today's
+    # 06:00 IST cutoff regardless of the current wall-clock time.
+    ist = ZoneInfo("Asia/Kolkata")
+    stale_expiry = (
+        datetime.now(ist).replace(hour=4, minute=0, second=0, microsecond=0) - timedelta(days=2)
+    ).astimezone(UTC)
+
+    conn = BrokerConnection(
+        user_id=user_id,
+        broker="zerodha",
+        account_id="ZD0001",
+        access_token_encrypted=b"ciphertext",
+        refresh_token_encrypted=None,
+        token_expires_at=stale_expiry,
+        status="active",
+    )
+    session.add(conn)
+    await session.commit()
+
+    resp = await client.get(
+        "/api/auth/broker/connections",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 200, resp.text
+    items = resp.json()["connections"]
+    assert len(items) == 1
+    assert items[0]["broker"] == "zerodha"
+    assert items[0]["status"] == "auth_expired"
+
+
+async def test_connections_endpoint_reports_auth_expired_for_db_expired_status(
+    broker_client: tuple[AsyncClient, AsyncSession, Settings],
+) -> None:
+    """A connection already flipped to ``expired`` by the sync path surfaces as
+    ``auth_expired`` to the dashboard."""
+    client, session, _ = broker_client
+    token = await _register_and_token(client)
+
+    user_id = await _get_current_user_id(session)
+    conn = BrokerConnection(
+        user_id=user_id,
+        broker="alpaca",
+        account_id="paper-xyz",
+        access_token_encrypted=b"ct",
+        refresh_token_encrypted=b"ct2",
+        status="expired",
+    )
+    session.add(conn)
+    await session.commit()
+
+    resp = await client.get(
+        "/api/auth/broker/connections",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 200
+    items = resp.json()["connections"]
+    assert len(items) == 1
+    assert items[0]["status"] == "auth_expired"
