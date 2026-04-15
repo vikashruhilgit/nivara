@@ -85,3 +85,13 @@ Subtask 1 (benchmark service) ──→ Subtask 2 (intelligence engine) ──�
 ```
 /supervisor job: .supervisor/jobs/pending/2026-04-11-m3-18-portfolio-intelligence.md
 ```
+
+## Outcome
+- **heal_loop_ran:** true
+- **heal_decision:** PASS
+- **heal_iterations:** 1
+- **heal_remaining_issues:** 0
+- **PR:** https://github.com/vikashruhilgit/nivara/pull/18
+- **Merged:** feat/m3-18-portfolio-intelligence → main (merge commit)
+- **Tests:** 13/13 target tests pass; full backend 314/315 (one pre-existing unrelated failure in test_calendar.py)
+- **Follow-ups logged in module docstring:** cost-basis rename of `market_value_*` fields; SQLite→Postgres testcontainer for fixtures; `_fx_change_pct` single-endpoint-gap logging; add `sector` column to `Instrument` (enables sector allocation beyond "Unknown").
