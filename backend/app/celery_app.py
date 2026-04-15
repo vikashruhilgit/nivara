@@ -41,6 +41,7 @@ def create_celery_app() -> Celery:
             "backend.app.tasks.post_close",
             "backend.app.tasks.always",
             "backend.app.tasks.calendar_verify",
+            "backend.app.tasks.ai_analysis",
         ],
     )
     app.conf.update(
