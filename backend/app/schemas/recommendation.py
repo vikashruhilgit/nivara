@@ -6,6 +6,7 @@ from datetime import datetime
 from typing import Literal
 from uuid import UUID
 
+from backend.app.intelligence.staleness import StalenessLevel
 from pydantic import BaseModel, Field
 
 
@@ -39,6 +40,7 @@ class RecommendationResponse(BaseModel):
     reason: str | None = None
     explainer_used: str | None = None
     ai_blended: bool = False
+    staleness: StalenessLevel | None = None
 
 
 __all__ = [

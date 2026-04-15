@@ -103,6 +103,14 @@ class Settings(BaseSettings):
     ai_analysis_timeout_s: float = 30.0
     anthropic_api_key: str | None = None
 
+    # --- Recommendation staleness (M4-23) -----------------------------------
+    # Age thresholds (in hours) used by backend.app.intelligence.staleness.
+    # Defaults: <1h fresh, <6h aging (-5% confidence), <24h stale (-15%),
+    # >=24h suppressed. Overridable per-env for backtests / staging.
+    staleness_fresh_hours: float = 1.0
+    staleness_aging_hours: float = 6.0
+    staleness_stale_hours: float = 24.0
+
     # --- MODE E: Risk Guardian & Notifications (M3-20) ------------------------
     # Expo push-service access token used by the dispatcher to call the
     # authenticated Expo Push API. When unset, push delivery is skipped and

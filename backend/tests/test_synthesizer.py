@@ -8,6 +8,7 @@ from uuid import uuid4
 
 import pytest
 from backend.app.intelligence.explainers.template import TemplateExplainer
+from backend.app.intelligence.staleness import StalenessLevel
 from backend.app.intelligence.synthesizer import MAX_AI_WEIGHT, synthesize
 
 
@@ -147,6 +148,88 @@ async def test_no_engines_returns_stale() -> None:
     )
     assert out.status == "stale"
     assert out.reason == "no_engine_data"
+    # no_engine_data path: staleness is not meaningful (there's no data to age)
+    # so the field should be None, not SUPPRESSED.
+    assert out.staleness is None
+
+
+# ------------------------------------------------------------- staleness bands
+
+
+@pytest.mark.asyncio
+async def test_aging_engines_reduce_confidence_by_5() -> None:
+    """3h-old engines → AGING band, ~5pp confidence reduction."""
+    now = datetime.now(UTC)
+    aging = now - timedelta(hours=3)
+    fresh_out = await synthesize(
+        instrument_id=uuid4(),
+        technical=_Technical(composite_score=0.5),
+        fundamental=None,
+        sentiment=None,
+        risk=None,
+        computed_at_per_engine={"technical": now},
+        now=now,
+    )
+    aging_out = await synthesize(
+        instrument_id=uuid4(),
+        technical=_Technical(composite_score=0.5),
+        fundamental=None,
+        sentiment=None,
+        risk=None,
+        computed_at_per_engine={"technical": aging},
+        now=now,
+    )
+    assert aging_out.staleness is StalenessLevel.AGING
+    assert fresh_out.confidence is not None and aging_out.confidence is not None
+    assert abs((fresh_out.confidence - aging_out.confidence) - 5.0) < 1e-6
+
+
+@pytest.mark.asyncio
+async def test_stale_engines_reduce_confidence_by_15() -> None:
+    """12h-old engines → STALE band, ~15pp confidence reduction."""
+    now = datetime.now(UTC)
+    stale = now - timedelta(hours=12)
+    fresh_out = await synthesize(
+        instrument_id=uuid4(),
+        technical=_Technical(composite_score=0.5),
+        fundamental=None,
+        sentiment=None,
+        risk=None,
+        computed_at_per_engine={"technical": now},
+        now=now,
+    )
+    stale_out = await synthesize(
+        instrument_id=uuid4(),
+        technical=_Technical(composite_score=0.5),
+        fundamental=None,
+        sentiment=None,
+        risk=None,
+        computed_at_per_engine={"technical": stale},
+        now=now,
+    )
+    assert stale_out.staleness is StalenessLevel.STALE
+    assert fresh_out.confidence is not None and stale_out.confidence is not None
+    assert abs((fresh_out.confidence - stale_out.confidence) - 15.0) < 1e-6
+
+
+@pytest.mark.asyncio
+async def test_suppressed_engines_hide_recommendation() -> None:
+    """25h-old engines → SUPPRESSED band, status=stale, reason=data_too_stale."""
+    now = datetime.now(UTC)
+    too_stale = now - timedelta(hours=25)
+    out = await synthesize(
+        instrument_id=uuid4(),
+        technical=_Technical(composite_score=0.8),
+        fundamental=None,
+        sentiment=None,
+        risk=None,
+        computed_at_per_engine={"technical": too_stale},
+        now=now,
+    )
+    assert out.status == "stale"
+    assert out.reason == "data_too_stale"
+    assert out.staleness is StalenessLevel.SUPPRESSED
+    assert out.action is None
 
 
 @pytest.mark.asyncio

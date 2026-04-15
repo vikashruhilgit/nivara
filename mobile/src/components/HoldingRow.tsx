@@ -4,6 +4,7 @@ import { StyleSheet, Text, View } from 'react-native';
 import type { Position } from '../hooks/usePortfolio';
 import { formatCurrency } from '../lib/format';
 import { AIRatingBadge, RecommendationAction } from './AIRatingBadge';
+import { FxImpactNote, FxAttribution } from './FxImpactNote';
 
 export interface Recommendation {
   instrument_id: string;
@@ -15,12 +16,19 @@ export interface HoldingRowProps {
   item: Position;
   baseCurrency: string;
   recommendation?: Recommendation | null;
+  /**
+   * Optional FX attribution. When provided and the holding is cross-currency,
+   * a muted note is rendered beneath the base-currency placeholder row.
+   * Falls back to `item.fx_attribution` if not explicitly passed.
+   */
+  fxAttribution?: FxAttribution | null;
 }
 
 export function HoldingRow({
   item,
   baseCurrency,
   recommendation,
+  fxAttribution,
 }: HoldingRowProps): React.ReactElement {
   const gain = item.unrealized_pl >= 0;
   const crossCurrency = item.currency !== baseCurrency;
@@ -52,6 +60,11 @@ export function HoldingRow({
           {nativePL}
         </Text>
         {basePL !== null ? <Text style={styles.muted}>{basePL}</Text> : null}
+        {crossCurrency && (fxAttribution ?? item.fx_attribution) ? (
+          <FxImpactNote
+            attribution={(fxAttribution ?? item.fx_attribution) as FxAttribution}
+          />
+        ) : null}
         {recommendation ? (
           <AIRatingBadge
             action={recommendation.action}

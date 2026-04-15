@@ -1,6 +1,8 @@
 import { StyleSheet, Text, View } from 'react-native';
 
 import { Recommendation, RecommendationAction } from '../hooks/useRecommendations';
+import { FreshnessBadge } from './FreshnessBadge';
+import { StaleDataMessage } from './StaleDataMessage';
 
 function actionLabel(action: RecommendationAction): string {
   switch (action) {
@@ -53,20 +55,43 @@ function timeAgo(iso: string): string {
   return `${yr}y ago`;
 }
 
-export function InsightCard({ rec }: { rec: Recommendation }): React.ReactElement {
+export interface InsightCardProps {
+  rec: Recommendation;
+  staleness?: 'fresh' | 'aging' | 'stale' | 'suppressed';
+}
+
+export function InsightCard({ rec, staleness }: InsightCardProps): React.ReactElement {
   const symbol = rec.symbol ?? rec.instrument_id ?? 'Unknown';
   const action = rec.action ?? null;
   const colors = action ? actionColors(action) : null;
+  const effectiveStaleness = staleness ?? rec.staleness;
+
+  if (effectiveStaleness === 'suppressed') {
+    return (
+      <View style={styles.card}>
+        <View style={styles.headerRow}>
+          <Text style={styles.symbol}>{symbol}</Text>
+          <FreshnessBadge level="suppressed" />
+        </View>
+        <StaleDataMessage level="suppressed" />
+      </View>
+    );
+  }
 
   return (
     <View style={styles.card}>
       <View style={styles.headerRow}>
         <Text style={styles.symbol}>{symbol}</Text>
-        {action && colors ? (
-          <View style={[styles.badge, { backgroundColor: colors.bg }]}>
-            <Text style={[styles.badgeText, { color: colors.fg }]}>{actionLabel(action)}</Text>
-          </View>
-        ) : null}
+        <View style={styles.headerRight}>
+          {effectiveStaleness && effectiveStaleness !== 'fresh' ? (
+            <FreshnessBadge level={effectiveStaleness} />
+          ) : null}
+          {action && colors ? (
+            <View style={[styles.badge, { backgroundColor: colors.bg }]}>
+              <Text style={[styles.badgeText, { color: colors.fg }]}>{actionLabel(action)}</Text>
+            </View>
+          ) : null}
+        </View>
       </View>
 
       <View style={styles.metaRow}>
@@ -117,6 +142,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+  },
+  headerRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
   },
   symbol: { fontSize: 18, fontWeight: '700' },
   badge: {
