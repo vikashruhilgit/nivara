@@ -169,11 +169,100 @@ class BenchmarkService:
         return first, last
 
 
+#: Map of MIC venue → (benchmark symbol, native currency).
+_VENUE_BENCHMARK: Final[dict[str, tuple[str, str]]] = {
+    "XNSE": (NIFTY_SYMBOL, "INR"),
+    "XBOM": (NIFTY_SYMBOL, "INR"),
+    "XNAS": (SP500_SYMBOL, "USD"),
+    "XNYS": (SP500_SYMBOL, "USD"),
+}
+
+
+def benchmark_for_venue(venue: str) -> tuple[str, str] | None:
+    """Return the ``(yahoo_symbol, native_currency)`` for a MIC venue, or None."""
+    return _VENUE_BENCHMARK.get(venue.upper())
+
+
+class FxConverter:  # pragma: no cover — protocol-like marker
+    """Minimal protocol implemented by :class:`backend.app.services.fx.FxService`."""
+
+    async def get_rate(self, *, base: str, quote: str, as_of: datetime | None = None) -> Decimal:
+        raise NotImplementedError
+
+
+async def benchmark_return_in_base(
+    observation: BenchmarkReturn,
+    *,
+    base_currency: str,
+    fx_service: FxConverter,
+) -> Decimal:
+    """Return the benchmark's period total return expressed in ``base_currency``.
+
+    Uses daily-close FX at period end vs period start to convert the index
+    levels, then computes ``close_end_base / close_start_base - 1``. When the
+    index is already in the base currency, or when close endpoints are missing
+    (``stale=True``), returns ``observation.total_return`` unchanged.
+    """
+    if observation.stale or observation.close_start is None or observation.close_end is None:
+        return observation.total_return
+    native = observation.currency.upper()
+    base = base_currency.upper()
+    if native == base:
+        return observation.total_return
+
+    fx_end = await fx_service.get_rate(base=native, quote=base, as_of=observation.period_end)
+    fx_start = await fx_service.get_rate(base=native, quote=base, as_of=observation.period_start)
+    start_base = observation.close_start * fx_start
+    end_base = observation.close_end * fx_end
+    if start_base <= Decimal("0"):
+        return Decimal("0")
+    return (end_base / start_base) - Decimal("1")
+
+
+async def blended_portfolio_return(
+    *,
+    weights_by_venue: dict[str, Decimal],
+    base_currency: str,
+    benchmark_service: BenchmarkService,
+    fx_service: FxConverter,
+    period_days: int = DEFAULT_PERIOD_DAYS,
+) -> Decimal:
+    """Allocation-weighted blended benchmark return in ``base_currency``.
+
+    ``weights_by_venue`` maps MIC venue (``XNSE``, ``XNAS``, ...) to allocation
+    share (0..1). Venues not in the benchmark map contribute 0. Weights that
+    don't sum to 1 are used as-is (caller owns normalization).
+    """
+    total = Decimal("0")
+    seen: set[str] = set()
+    for venue, weight in weights_by_venue.items():
+        mapping = benchmark_for_venue(venue)
+        if mapping is None:
+            continue
+        symbol, _ccy = mapping
+        if symbol in seen:
+            # Same benchmark already counted — accumulate via weight only
+            # (weights from distinct venues sharing a symbol are additive).
+            observation = await benchmark_service.get_return(symbol=symbol, period_days=period_days)
+        else:
+            observation = await benchmark_service.get_return(symbol=symbol, period_days=period_days)
+            seen.add(symbol)
+        base_return = await benchmark_return_in_base(
+            observation, base_currency=base_currency, fx_service=fx_service
+        )
+        total += weight * base_return
+    return total
+
+
 __all__ = [
     "BENCHMARK_CACHE_TTL_SECONDS",
     "BenchmarkService",
     "DEFAULT_PERIOD_DAYS",
+    "FxConverter",
     "NIFTY_SYMBOL",
     "SP500_SYMBOL",
     "benchmark_cache_key",
+    "benchmark_for_venue",
+    "benchmark_return_in_base",
+    "blended_portfolio_return",
 ]
