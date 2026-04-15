@@ -92,3 +92,12 @@ Subtask 3 (position)  ─┘
 ```
 /supervisor job: .supervisor/jobs/pending/2026-04-11-m3-19-safety-layer.md
 ```
+
+## Outcome
+- heal_loop_ran: true
+- heal_decision: PASS
+- heal_iterations: 1
+- heal_remaining_issues: 0 (HIGH); 5 MEDIUM/LOW accepted as follow-ups (Decimal→float in audit JSONB, inverted lower-bound schema validators, Redis/audit commit ordering, redundant activation audit rows, API test fake reimplements SUT)
+- pr: https://github.com/vikashruhilgit/nivara/pull/19
+- final_commit: f3ccf4e
+- tests: 330 passing (full suite); 17 safety tests
