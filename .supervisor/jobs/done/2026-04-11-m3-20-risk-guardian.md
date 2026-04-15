@@ -98,3 +98,12 @@ Subtask 3 (device registration) ────────────────
 ```
 /supervisor job: .supervisor/jobs/pending/2026-04-11-m3-20-risk-guardian.md
 ```
+
+## Outcome
+- heal_loop_ran: true
+- heal_decision: PASS
+- heal_iterations: 1
+- heal_remaining_issues: 0 (blocking); 5 deferred (perf N+1, WS ticket logging, redundant flush, WS test gaps, email channel wiring)
+- PR: https://github.com/vikashruhilgit/nivara/pull/20
+- Tests: 24/24 passing
+- Status: completed
