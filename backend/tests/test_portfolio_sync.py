@@ -310,6 +310,66 @@ async def test_orders_upserted_by_broker_order_id(session: AsyncSession) -> None
 # ------------------------------------------------------------------ skip unresolved symbol
 
 
+# ------------------------------------------------------------------ _build_adapter branching
+
+
+def test_build_adapter_constructs_zerodha_adapter_for_zerodha_connection() -> None:
+    """M4-22 heal: sync path must construct ZerodhaAdapter for broker='zerodha'.
+
+    Previously the branch did not exist and sync would 501. We stub out the
+    settings + encryption + rate-limiter singletons so the test doesn't need
+    Redis or a real master key.
+    """
+    import base64
+    import os
+    from unittest.mock import MagicMock
+
+    from backend.app.api import portfolio as portfolio_module
+    from backend.app.brokers.zerodha import ZerodhaAdapter
+    from backend.app.config import Settings
+    from backend.app.services import encryption as enc_module
+
+    user_id = uuid4()
+    master_key = base64.urlsafe_b64encode(os.urandom(32)).decode()
+    settings = Settings(
+        master_encryption_key=master_key,
+        zerodha_api_key="zd-key",
+        zerodha_api_secret="zd-secret",
+    )
+    orig_portfolio_settings = portfolio_module.get_settings
+    orig_enc_settings = enc_module.get_settings
+    portfolio_module.get_settings = lambda: settings  # type: ignore[assignment]
+    enc_module.get_settings = lambda: settings  # type: ignore[assignment]
+    enc_module.reset_master_key_cache()
+
+    orig_limiter = portfolio_module.get_zerodha_rate_limiter
+    portfolio_module.get_zerodha_rate_limiter = lambda: MagicMock()  # type: ignore[assignment]
+
+    try:
+        access_token = "kite-access-token-XYZ"
+        encrypted = enc_module.encrypt_token(access_token, user_id=user_id)
+        conn = BrokerConnection(
+            user_id=user_id,
+            broker="zerodha",
+            account_id="ZD-acct",
+            access_token_encrypted=encrypted,
+            status="active",
+        )
+
+        adapter = portfolio_module._build_adapter(conn, user_id.bytes)
+        assert isinstance(adapter, ZerodhaAdapter)
+        # Secrets wired through from Settings (not hardcoded).
+        assert adapter._api_key == "zd-key"
+        assert adapter._api_secret == "zd-secret"
+        assert adapter._access_token == access_token
+        assert adapter._rate_limiter is not None
+    finally:
+        portfolio_module.get_settings = orig_portfolio_settings  # type: ignore[assignment]
+        enc_module.get_settings = orig_enc_settings  # type: ignore[assignment]
+        portfolio_module.get_zerodha_rate_limiter = orig_limiter  # type: ignore[assignment]
+        enc_module.reset_master_key_cache()
+
+
 async def test_unresolved_symbol_skipped_with_warning(session: AsyncSession) -> None:
     """A broker symbol we can't map must skip the position, not crash."""
     _aapl, _tsla, conn, user_id = await _seed_instruments_and_connection(session)

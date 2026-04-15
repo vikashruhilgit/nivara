@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -433,6 +433,61 @@ def test_resolve_canonical_defaults_to_xnse_when_exchange_missing() -> None:
     adapter = _make_adapter(MagicMock())
     assert adapter.resolve_canonical("RELIANCE", None) == ("RELIANCE", "XNSE")
     assert adapter.resolve_canonical("RELIANCE", "") == ("RELIANCE", "XNSE")
+
+
+# --------------------------------------------------------------------- rate limiter wiring
+
+
+async def test_rate_limiter_acquire_called_once_per_call() -> None:
+    """AC M4-22 S2: adapter defers to the injected limiter on every ``_call``."""
+    kite = MagicMock()
+    kite.holdings.return_value = []
+    kite.positions.return_value = {"net": [], "day": []}
+    kite.orders.return_value = []
+
+    limiter = MagicMock()
+    limiter.acquire = AsyncMock(return_value=None)
+
+    adapter = ZerodhaAdapter(
+        api_key="k",
+        api_secret="s",
+        access_token="t",
+        kite_client=kite,
+        rate_limiter=limiter,
+    )
+
+    # get_positions -> 2 SDK calls (holdings + positions) -> 2 acquire() calls.
+    await adapter.get_positions()
+    assert limiter.acquire.await_count == 2
+
+    await adapter.get_orders()
+    assert limiter.acquire.await_count == 3
+
+
+async def test_no_rate_limiter_does_not_break_calls() -> None:
+    """Adapter must stay usable without a limiter (tests / degraded env)."""
+    kite = MagicMock()
+    kite.orders.return_value = []
+    adapter = ZerodhaAdapter(api_key="k", api_secret="s", access_token="t", kite_client=kite)
+    assert await adapter.get_orders() == []
+
+
+# --------------------------------------------------------------------- error scrubbing
+
+
+async def test_error_messages_do_not_leak_exception_detail() -> None:
+    """Upstream exception ``str()`` output (which can embed tokens) must not
+    be concatenated into the BrokerAPIError message surface."""
+    kite = MagicMock()
+    secret = "access_token=AB12CDEF-leak"
+    kite.holdings.side_effect = TokenException(secret)
+    adapter = _make_adapter(kite)
+
+    with pytest.raises(BrokerAPIError) as excinfo:
+        await adapter.get_positions()
+    assert secret not in str(excinfo.value)
+    # Exception class name is included so ops can correlate with server logs.
+    assert "TokenException" in str(excinfo.value)
 
 
 def test_features_flags() -> None:

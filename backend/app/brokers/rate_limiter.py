@@ -157,3 +157,38 @@ class GlobalRateLimiter:
     ) -> None:
         # Sliding window is time-decayed; no explicit release needed.
         return None
+
+
+# ---------------------------------------------------------------------- shared
+# Singletons keyed by (key, max, window). Eagerly reading the redis client at
+# import time would break test import order; instead we lazy-init on first use
+# so tests that don't go through ``get_zerodha_rate_limiter`` pay nothing.
+_ZERODHA_LIMITER: GlobalRateLimiter | None = None
+
+
+def get_zerodha_rate_limiter() -> GlobalRateLimiter:
+    """Return the process-wide global Zerodha rate limiter.
+
+    Configured for Kite Connect's documented per-account budget: 10 requests
+    per second. Shares the same Redis instance as the rest of the app so
+    workers / Celery processes coordinate on a single bucket.
+    """
+    global _ZERODHA_LIMITER
+    if _ZERODHA_LIMITER is None:
+        # Local import to keep rate_limiter importable without the settings
+        # stack (helps unit tests that stub redis/config).
+        from backend.app.redis_client import get_redis
+
+        _ZERODHA_LIMITER = GlobalRateLimiter(
+            redis_client=get_redis(),
+            key="ratelimit:zerodha:global",
+            max_requests=10,
+            window_seconds=1.0,
+        )
+    return _ZERODHA_LIMITER
+
+
+def reset_zerodha_rate_limiter() -> None:
+    """Drop the cached singleton (tests / process reload)."""
+    global _ZERODHA_LIMITER
+    _ZERODHA_LIMITER = None

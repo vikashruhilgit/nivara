@@ -22,6 +22,8 @@ from backend.app.auth.dependencies import get_current_user
 from backend.app.brokers.alpaca import AlpacaAdapter
 from backend.app.brokers.base import BrokerAdapter
 from backend.app.brokers.errors import BrokerAPIError, BrokerErrorCode
+from backend.app.brokers.rate_limiter import get_zerodha_rate_limiter
+from backend.app.brokers.zerodha import ZerodhaAdapter
 from backend.app.config import get_settings
 from backend.app.db import get_session
 from backend.app.models.broker_connections import BrokerConnection
@@ -74,6 +76,26 @@ def _build_adapter(connection: BrokerConnection, user_id_bytes: bytes) -> Broker
             api_key=access_key,
             api_secret=api_secret,
             base_url=settings.alpaca_base_url,
+        )
+    if connection.broker == "zerodha":
+        # Kite Connect requires the app's api_key + api_secret (from settings)
+        # plus the user-scoped daily access_token (stored encrypted on the
+        # connection row). The global rate limiter is shared across workers
+        # via the Redis-backed singleton.
+        api_key = settings.zerodha_api_key or ""
+        api_secret = settings.zerodha_api_secret or ""
+        if not api_key or not api_secret:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Zerodha (Kite Connect) is not configured",
+            )
+        access_token = decrypt_token(connection.access_token_encrypted, user_id=connection.user_id)
+        return ZerodhaAdapter(
+            api_key=api_key,
+            api_secret=api_secret,
+            access_token=access_token,
+            access_token_issued_at=connection.token_expires_at,
+            rate_limiter=get_zerodha_rate_limiter(),
         )
     raise HTTPException(
         status_code=status.HTTP_501_NOT_IMPLEMENTED,

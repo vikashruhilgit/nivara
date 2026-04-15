@@ -34,6 +34,7 @@ from zoneinfo import ZoneInfo
 
 from backend.app.brokers.base import BrokerAdapter, BrokerFeatures
 from backend.app.brokers.errors import BrokerAPIError, BrokerErrorCode
+from backend.app.brokers.rate_limiter import GlobalRateLimiter
 from backend.app.schemas.broker import (
     NormalizedBalance,
     NormalizedOrder,
@@ -126,6 +127,7 @@ class ZerodhaAdapter(BrokerAdapter):
         access_token_issued_at: datetime | None = None,
         kite_client: KiteConnect | None = None,
         symbol_mapper: Callable[[str, str | None], tuple[str, str]] | None = None,
+        rate_limiter: GlobalRateLimiter | None = None,
     ) -> None:
         self._api_key = api_key
         self._api_secret = api_secret
@@ -135,6 +137,12 @@ class ZerodhaAdapter(BrokerAdapter):
             kite_client = KiteConnect(api_key=api_key)
             kite_client.set_access_token(access_token)
         self._kite = kite_client
+        # Optional global rate limiter. When provided, every ``_call`` acquires
+        # a slot before dispatching the blocking Kite SDK call — so multiple
+        # workers/processes share a single 10 req/s budget (Kite Connect's
+        # documented per-account limit). No default instance is constructed
+        # here so unit tests can build the adapter without a live Redis.
+        self._rate_limiter = rate_limiter
         # Optional resolver: (broker_symbol, broker_exchange) -> (canonical_symbol,
         # canonical_exchange_mic). Callers with DB access wire this to
         # :class:`SymbolMappingService`; tests can inject a pure dict-backed fake.
@@ -175,6 +183,17 @@ class ZerodhaAdapter(BrokerAdapter):
             requires_daily_reauth=True,
         )
 
+    # ------------------------------------------------------------------ lifecycle
+
+    async def __aenter__(self) -> ZerodhaAdapter:
+        # KiteConnect is a synchronous SDK with no persistent session to open.
+        return self
+
+    async def __aexit__(self, *exc: object) -> None:
+        # No resources to release; present for parity with AlpacaAdapter so
+        # callers (e.g. portfolio sync) can use ``async with adapter``.
+        return None
+
     # ------------------------------------------------------------------ helpers
 
     async def _call(self, fn: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
@@ -191,37 +210,46 @@ class ZerodhaAdapter(BrokerAdapter):
                 "Zerodha access token expired (past 06:00 IST daily cutoff)",
                 broker=self.broker_name,
             )
+        if self._rate_limiter is not None:
+            await self._rate_limiter.acquire()
         try:
             return await asyncio.to_thread(fn, *args, **kwargs)
         except TokenException as exc:
+            # NB: Kite exception messages can embed the access_token or api_key.
+            # Log full detail server-side but surface only the exception class
+            # name through BrokerAPIError (callers may bubble into HTTPException).
+            logger.exception("Zerodha TokenException in %s", getattr(fn, "__name__", "call"))
             raise BrokerAPIError(
                 BrokerErrorCode.AUTH_EXPIRED,
-                f"Zerodha access token expired or invalid: {exc}",
+                f"Zerodha access token expired or invalid ({type(exc).__name__})",
                 broker=self.broker_name,
             ) from exc
         except NetworkException as exc:
+            logger.exception("Zerodha NetworkException in %s", getattr(fn, "__name__", "call"))
             raise BrokerAPIError(
                 BrokerErrorCode.NETWORK_TIMEOUT,
-                f"Zerodha network error: {exc}",
+                f"Zerodha network error ({type(exc).__name__})",
                 broker=self.broker_name,
             ) from exc
         except InputException as exc:
+            logger.exception("Zerodha InputException in %s", getattr(fn, "__name__", "call"))
             raise BrokerAPIError(
                 BrokerErrorCode.INSTRUMENT_UNKNOWN,
-                f"Zerodha rejected request: {exc}",
+                f"Zerodha rejected request ({type(exc).__name__})",
                 broker=self.broker_name,
             ) from exc
         except KiteException as exc:
+            logger.exception("Zerodha KiteException in %s", getattr(fn, "__name__", "call"))
             raise BrokerAPIError(
                 BrokerErrorCode.UPSTREAM_DOWN,
-                f"Zerodha upstream error: {exc}",
+                f"Zerodha upstream error ({type(exc).__name__})",
                 broker=self.broker_name,
             ) from exc
         except Exception as exc:  # pragma: no cover - defensive
             logger.exception("Unexpected Zerodha SDK error")
             raise BrokerAPIError(
                 BrokerErrorCode.UPSTREAM_DOWN,
-                f"Unexpected Zerodha error: {exc}",
+                f"Unexpected Zerodha error ({type(exc).__name__})",
                 broker=self.broker_name,
             ) from exc
 
