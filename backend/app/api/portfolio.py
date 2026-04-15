@@ -17,6 +17,8 @@ from __future__ import annotations
 
 import contextlib
 import logging
+from collections.abc import Awaitable, Callable
+from decimal import Decimal
 
 from backend.app.auth.dependencies import get_current_user
 from backend.app.brokers.alpaca import AlpacaAdapter
@@ -26,11 +28,16 @@ from backend.app.brokers.rate_limiter import get_zerodha_rate_limiter
 from backend.app.brokers.zerodha import ZerodhaAdapter
 from backend.app.config import get_settings
 from backend.app.db import get_session
+from backend.app.intelligence.fx_attribution import (
+    FxAttribution,
+    compute_fx_attribution,
+)
 from backend.app.models.broker_connections import BrokerConnection
 from backend.app.models.users import User
 from backend.app.redis_client import get_redis
 from backend.app.schemas.portfolio import (
     PortfolioSummaryOut,
+    PositionOut,
     PositionsList,
     SyncResult,
 )
@@ -52,6 +59,16 @@ router = APIRouter(prefix="/api/portfolio", tags=["portfolio"])
 # Redis lock TTL per user sync (seconds). Guards against stuck locks if the
 # process dies mid-sync — the lock naturally expires.
 _SYNC_LOCK_TTL = 60
+
+# Resolver: given a PositionOut, return (current_price_native, fx_at_open)
+# or None if the historical data isn't available. The price pipeline and
+# trade-level FX snapshot aren't wired yet, so the default resolver always
+# returns None and the helper is a no-op in production. Tests inject a
+# real resolver to exercise the attribution path.
+FxAttributionResolver = Callable[
+    [PositionOut],
+    Awaitable["tuple[Decimal, Decimal] | None"],
+]
 
 
 def _summary_service(session: AsyncSession = Depends(get_session)) -> PortfolioSummaryService:
@@ -206,11 +223,77 @@ async def get_summary(
     return await svc.summary(user_id=current_user.id, base_currency=base)
 
 
+async def _default_fx_attribution_resolver(
+    position: PositionOut,
+) -> tuple[Decimal, Decimal] | None:
+    """Default resolver: no historical price/FX data available yet.
+
+    Returning ``None`` means the helper emits no ``fx_attribution`` on the
+    position (the field stays at its default ``None``). When the price
+    pipeline and trade-level FX snapshots ship, replace this with a real
+    resolver that reads from the DB.
+    """
+    return None
+
+
+async def _attach_fx_attribution(
+    result: PositionsList,
+    *,
+    base_currency: str,
+    resolver: FxAttributionResolver = _default_fx_attribution_resolver,
+) -> PositionsList:
+    """Enrich cross-currency positions with a :class:`FxAttribution` note.
+
+    Additive: same-currency positions are left untouched. Positions where
+    the resolver returns ``None`` are also left untouched. The helper
+    never raises on a single bad position — it logs and moves on, so one
+    broken position can't poison the whole response.
+    """
+    base = base_currency.upper()
+    enriched: list[PositionOut] = []
+    for position in result.positions:
+        if position.currency.upper() == base:
+            enriched.append(position)
+            continue
+        try:
+            resolved = await resolver(position)
+        except Exception:  # noqa: BLE001 — one bad position shouldn't break the list
+            logger.exception("fx attribution resolver failed for %s", position.symbol)
+            enriched.append(position)
+            continue
+        if resolved is None:
+            enriched.append(position)
+            continue
+        current_price_native, fx_at_open = resolved
+        try:
+            attribution: FxAttribution | None = compute_fx_attribution(
+                cost_basis_native=position.avg_cost,
+                current_price_native=current_price_native,
+                native_ccy=position.currency,
+                base_ccy=base,
+                fx_at_open=fx_at_open,
+                fx_current=position.fx_rate,
+                symbol=position.symbol,
+            )
+        except ValueError:
+            logger.exception("fx attribution compute failed for %s", position.symbol)
+            enriched.append(position)
+            continue
+        enriched.append(position.model_copy(update={"fx_attribution": attribution}))
+    return result.model_copy(update={"positions": enriched})
+
+
 @router.get("/positions", response_model=PositionsList)
 async def get_positions(
     current_user: User = Depends(get_current_user),
     svc: PortfolioSummaryService = Depends(_summary_service),
 ) -> PositionsList:
-    """Return all positions with native + base currency valuation."""
+    """Return all positions with native + base currency valuation.
+
+    Cross-currency positions are optionally enriched with ``fx_attribution``
+    decomposing the return into stock + FX + base components. See
+    :mod:`backend.app.intelligence.fx_attribution`.
+    """
     base = get_settings().default_base_currency.upper()
-    return await svc.list_positions(user_id=current_user.id, base_currency=base)
+    result = await svc.list_positions(user_id=current_user.id, base_currency=base)
+    return await _attach_fx_attribution(result, base_currency=base)
