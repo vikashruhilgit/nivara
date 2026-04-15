@@ -446,7 +446,15 @@ async def test_run_all_round_trips_dispatch() -> None:
 
         async def dispatch(self, notification: Notification) -> DispatchResult:
             self.calls.append(notification)
-            return DispatchResult(notification_id=notification.id)
+            # Mirror the real AlertDispatcher: mark as sent on successful
+            # delivery. ``run_all`` no longer sets ``sent_at`` itself.
+            if notification.sent_at is None:
+                notification.sent_at = datetime.now(tz=UTC)
+            return DispatchResult(
+                notification_id=notification.id,
+                channels_attempted=["_CapturingDispatcher"],
+                channels_succeeded=["_CapturingDispatcher"],
+            )
 
         async def dispatch_many(self, notifications: list[Notification]) -> list[DispatchResult]:
             return [await self.dispatch(n) for n in notifications]
