@@ -64,9 +64,7 @@ async def _recalc_indicators_async(exchange: str) -> _RecalcSummary:
     from sqlalchemy import func, select
 
     async with _session_factory()() as session:
-        stmt = select(func.count(Instrument.id)).where(
-            Instrument.exchange == exchange
-        )
+        stmt = select(func.count(Instrument.id)).where(Instrument.exchange == exchange)
         # NSE is mapped to XBOM at the calendar layer; the instruments table
         # stores seed-style codes so "XBOM" won't match rows stored as
         # "NSE" / "BSE". We don't care about the exact count here — this is

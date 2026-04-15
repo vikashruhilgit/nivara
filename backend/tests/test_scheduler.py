@@ -55,11 +55,16 @@ def _patch_get_calendar() -> Any:
     """Patch ``_get_calendar`` so compute_market_state can resolve the tz without
     loading real exchange_calendars data."""
     fake_cal = SimpleNamespace(tz=UTC)
-    with patch(
-        "backend.app.scheduling.scheduler._get_calendar", return_value=fake_cal,
-        create=True,
-    ), patch(
-        "backend.app.services.calendar._get_calendar", return_value=fake_cal,
+    with (
+        patch(
+            "backend.app.scheduling.scheduler._get_calendar",
+            return_value=fake_cal,
+            create=True,
+        ),
+        patch(
+            "backend.app.services.calendar._get_calendar",
+            return_value=fake_cal,
+        ),
     ):
         yield
 

@@ -117,9 +117,7 @@ async def test_technical_endpoint_returns_all_indicators(
     api_session.add(inst)
     await api_session.flush()
 
-    resp = await api_client.get(
-        "/api/analysis/AAPL/technical", params={"exchange": "NASDAQ"}
-    )
+    resp = await api_client.get("/api/analysis/AAPL/technical", params={"exchange": "NASDAQ"})
     assert resp.status_code == 200, resp.text
     body = resp.json()
     assert body["symbol"] == "AAPL"
@@ -138,9 +136,7 @@ async def test_technical_endpoint_returns_all_indicators(
 async def test_technical_endpoint_404_for_unknown_instrument(
     api_client: AsyncClient,
 ) -> None:
-    resp = await api_client.get(
-        "/api/analysis/NOSUCH/technical", params={"exchange": "NASDAQ"}
-    )
+    resp = await api_client.get("/api/analysis/NOSUCH/technical", params={"exchange": "NASDAQ"})
     assert resp.status_code == 404
     assert "not found" in resp.json()["detail"].lower()
 
@@ -177,9 +173,7 @@ async def test_technical_endpoint_404_for_empty_price_history(
     try:
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as ac:
-            resp = await ac.get(
-                "/api/analysis/EMPTY/technical", params={"exchange": "NASDAQ"}
-            )
+            resp = await ac.get("/api/analysis/EMPTY/technical", params={"exchange": "NASDAQ"})
         assert resp.status_code == 404
         assert "no price history" in resp.json()["detail"].lower()
     finally:
@@ -200,16 +194,12 @@ async def test_technical_endpoint_caches_on_second_call(
     api_session.add(inst)
     await api_session.flush()
 
-    r1 = await api_client.get(
-        "/api/analysis/AAPL/technical", params={"exchange": "NASDAQ"}
-    )
+    r1 = await api_client.get("/api/analysis/AAPL/technical", params={"exchange": "NASDAQ"})
     assert r1.status_code == 200
     # Cache key should be populated.
     cache_key = f"tech:{inst.id}:rsi"
     assert await fake_redis.exists(cache_key) == 1
 
-    r2 = await api_client.get(
-        "/api/analysis/AAPL/technical", params={"exchange": "NASDAQ"}
-    )
+    r2 = await api_client.get("/api/analysis/AAPL/technical", params={"exchange": "NASDAQ"})
     assert r2.status_code == 200
     assert r2.json()["composite_score"] == pytest.approx(r1.json()["composite_score"])

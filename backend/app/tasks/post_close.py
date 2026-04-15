@@ -48,15 +48,11 @@ async def _fetch_ohlcv_async(exchange: str, session_date: str) -> dict[str, Any]
     :meth:`YahooProvider.fetch_daily_bars` for each, and upsert into
     ``price_history``. Wired here so the chain has a real task name.
     """
-    logger.info(
-        "post_close.fetch_ohlcv: exchange=%s session_date=%s", exchange, session_date
-    )
+    logger.info("post_close.fetch_ohlcv: exchange=%s session_date=%s", exchange, session_date)
     return {"step": "fetch_ohlcv", "exchange": exchange, "session_date": session_date}
 
 
-async def _refresh_fundamentals_async(
-    exchange: str, session_date: str
-) -> dict[str, Any]:
+async def _refresh_fundamentals_async(exchange: str, session_date: str) -> dict[str, Any]:
     """Stub: trigger fundamentals refresh. Real impl calls EDGAR pipeline."""
     logger.info(
         "post_close.refresh_fundamentals: exchange=%s session_date=%s",
@@ -72,15 +68,11 @@ async def _refresh_fundamentals_async(
 
 async def _recalc_risk_async(exchange: str, session_date: str) -> dict[str, Any]:
     """Stub: risk recalc. Real impl lands in M3 (risk meter job)."""
-    logger.info(
-        "post_close.recalc_risk: exchange=%s session_date=%s", exchange, session_date
-    )
+    logger.info("post_close.recalc_risk: exchange=%s session_date=%s", exchange, session_date)
     return {"step": "recalc_risk", "exchange": exchange, "session_date": session_date}
 
 
-async def _snapshot_portfolios_async(
-    exchange: str, session_date: str
-) -> dict[str, Any]:
+async def _snapshot_portfolios_async(exchange: str, session_date: str) -> dict[str, Any]:
     """Stub: EOD portfolio snapshot. Real impl walks active connections."""
     logger.info(
         "post_close.snapshot_portfolios: exchange=%s session_date=%s",

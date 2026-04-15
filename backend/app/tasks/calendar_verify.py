@@ -92,9 +92,7 @@ async def verify_calendars(
                 CalendarOverride.date >= today,
                 CalendarOverride.date <= horizon_end,
             )
-            overrides = {
-                row.date: row for row in (await session.execute(stmt)).scalars()
-            }
+            overrides = {row.date: row for row in (await session.execute(stmt)).scalars()}
 
             # Walk each day. Only flag a drift when the override's is_open
             # disagrees with the library's session classification.
