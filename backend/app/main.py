@@ -10,6 +10,7 @@ from backend.app.api.portfolio import router as portfolio_router
 from backend.app.api.portfolio_intelligence import router as portfolio_intelligence_router
 from backend.app.api.recommendations import router as recommendations_router
 from backend.app.api.risk_meter import router as risk_meter_router
+from backend.app.api.safety import router as safety_router
 from backend.app.config import get_settings
 from fastapi import FastAPI
 
@@ -26,6 +27,7 @@ app.include_router(analysis_router)
 app.include_router(risk_meter_router)
 app.include_router(health_score_router)
 app.include_router(recommendations_router)
+app.include_router(safety_router)
 
 
 @app.get("/health")
