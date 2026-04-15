@@ -221,12 +221,15 @@ async def synthesize(
     )
 
     if not normalized:
+        # No engines ran — staleness is not meaningful here (there's no data
+        # to classify the age of). Keep ``staleness=None`` so clients don't
+        # conflate "no data" with "data too old".
         return RecommendationResponse(
             status="stale",
             reason="no_engine_data",
             engine_scores=engine_scores,
             computed_at=now,
-            staleness=StalenessLevel.SUPPRESSED,
+            staleness=None,
         )
 
     # Staleness gate — classify based on the oldest engine timestamp.

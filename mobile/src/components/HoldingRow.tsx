@@ -19,7 +19,7 @@ export interface HoldingRowProps {
   /**
    * Optional FX attribution. When provided and the holding is cross-currency,
    * a muted note is rendered beneath the base-currency placeholder row.
-   * Falls back to `item.fxAttribution` if not explicitly passed.
+   * Falls back to `item.fx_attribution` if not explicitly passed.
    */
   fxAttribution?: FxAttribution | null;
 }
@@ -60,9 +60,9 @@ export function HoldingRow({
           {nativePL}
         </Text>
         {basePL !== null ? <Text style={styles.muted}>{basePL}</Text> : null}
-        {crossCurrency && (fxAttribution ?? item.fxAttribution) ? (
+        {crossCurrency && (fxAttribution ?? item.fx_attribution) ? (
           <FxImpactNote
-            attribution={(fxAttribution ?? item.fxAttribution) as FxAttribution}
+            attribution={(fxAttribution ?? item.fx_attribution) as FxAttribution}
           />
         ) : null}
         {recommendation ? (
