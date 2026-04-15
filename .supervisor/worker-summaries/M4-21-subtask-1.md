@@ -1,0 +1,12 @@
+## WORKER_SUMMARY
+- subtask_id: M4-21-subtask-1
+- status: completed
+- files_modified: [mobile/app/(tabs)/portfolio.tsx]
+- files_created: [mobile/src/lib/format.ts, mobile/src/components/PnLDisplay.tsx, mobile/src/components/PortfolioSummary.tsx]
+- lines_added: ~135
+- lines_removed: ~30
+- tests_run: none
+- tests_passed: n/a
+- tests_failed: n/a
+- error: none
+- notes: Refactored portfolio header into PortfolioSummary + PnLDisplay components and extracted formatCurrency to mobile/src/lib/format.ts. tsc --noEmit could not run (mobile/node_modules not installed); manual review confirms types align with existing PortfolioSummary/Position interfaces.

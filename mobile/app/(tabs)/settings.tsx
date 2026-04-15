@@ -1,11 +1,31 @@
+import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
-import { BrokerConnect } from '../../src/components/BrokerConnect';
+import { BrokerConnectionsManager } from '../../src/components/BrokerConnectionsManager';
+import { CurrencyToggle, type BaseCurrency } from '../../src/components/CurrencyToggle';
+import {
+  NotificationPreferences,
+  type NotificationPrefKey,
+  type NotificationPrefs,
+} from '../../src/components/NotificationPreferences';
 import { useAuthStore } from '../../src/store/auth';
 
 export default function SettingsScreen(): React.ReactElement {
   const user = useAuthStore((s) => s.user);
   const signOut = useAuthStore((s) => s.signOut);
+
+  // TODO: persist base currency via expo-secure-store or user prefs API.
+  const [baseCurrency, setBaseCurrency] = useState<BaseCurrency>('USD');
+
+  // TODO: persist via PATCH /api/users/me/preferences once backend lands.
+  const [prefs, setPrefs] = useState<NotificationPrefs>({
+    marketAlerts: true,
+    dailySummary: true,
+    recommendations: true,
+  });
+
+  const setPref = (key: NotificationPrefKey, v: boolean): void =>
+    setPrefs((p) => ({ ...p, [key]: v }));
 
   return (
     <ScrollView contentContainerStyle={styles.container}>
@@ -16,11 +36,18 @@ export default function SettingsScreen(): React.ReactElement {
       </View>
 
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Broker</Text>
-        <Text style={styles.sub}>
-          Link your brokerage account to sync positions and place trades from InvestIQ.
-        </Text>
-        <BrokerConnect broker="alpaca" />
+        <Text style={styles.sectionTitle}>Display</Text>
+        <CurrencyToggle value={baseCurrency} onChange={setBaseCurrency} />
+      </View>
+
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Notifications</Text>
+        <NotificationPreferences value={prefs} onChange={setPref} />
+      </View>
+
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Broker connections</Text>
+        <BrokerConnectionsManager />
       </View>
 
       <View style={styles.section}>
