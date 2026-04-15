@@ -44,6 +44,7 @@ export interface Recommendation {
   reason?: string | null;
   explainer_used?: string | null;
   ai_blended?: boolean;
+  staleness?: 'fresh' | 'aging' | 'stale' | 'suppressed';
 }
 
 export function useRecommendations(): UseQueryResult<Recommendation[], Error> {
