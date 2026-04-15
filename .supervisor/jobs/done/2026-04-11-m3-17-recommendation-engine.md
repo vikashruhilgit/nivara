@@ -112,3 +112,13 @@ Subtask 6 (sanitizer)   ─┘──→ Subtask 5 (output validation)  ─┤─
 ```
 /supervisor job: .supervisor/jobs/pending/2026-04-11-m3-17-recommendation-engine.md
 ```
+
+## Outcome
+- heal_loop_ran: true
+- heal_decision: PASS
+- heal_iterations: 1
+- heal_remaining_issues: 0
+- feature_branch: feat/m3-17-recommendation-engine
+- final_head_sha: 68793032d6784885c588a6e601f98be53b672020
+- pr_url: https://github.com/vikashruhilgit/nivara/pull/17
+- status: completed
