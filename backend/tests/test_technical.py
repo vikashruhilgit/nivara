@@ -120,7 +120,12 @@ def test_fewer_than_30_bars_short_circuits():
     assert out.composite_score is None
     assert out.action is None
     assert set(out.insufficient_data_flags) == {
-        "rsi", "macd", "ma_alignment", "bollinger", "volume", "atr"
+        "rsi",
+        "macd",
+        "ma_alignment",
+        "bollinger",
+        "volume",
+        "atr",
     }
     assert out.rsi.insufficient_data
     assert out.rsi.value is None

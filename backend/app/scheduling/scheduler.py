@@ -216,9 +216,7 @@ class SessionAwareScheduler:
                         DispatchPlan(
                             task_name="tasks.in_session.recalc_indicators",
                             kwargs={"exchange": mic},
-                            dedupe_key=(
-                                f"sched:last_dispatch:recalc:{mic}:{minute_stamp}"
-                            ),
+                            dedupe_key=(f"sched:last_dispatch:recalc:{mic}:{minute_stamp}"),
                         )
                     )
                 # Hourly portfolio sync (top of the hour).
@@ -227,9 +225,7 @@ class SessionAwareScheduler:
                         DispatchPlan(
                             task_name="tasks.in_session.sync_portfolios",
                             kwargs={"exchange": mic},
-                            dedupe_key=(
-                                f"sched:last_dispatch:sync:{mic}:{minute_stamp}"
-                            ),
+                            dedupe_key=(f"sched:last_dispatch:sync:{mic}:{minute_stamp}"),
                         )
                     )
             elif snap.state is MarketState.JUST_CLOSED:
@@ -241,9 +237,7 @@ class SessionAwareScheduler:
                             "session_date": session_date_str,
                             "is_half_day": snap.is_half_day,
                         },
-                        dedupe_key=(
-                            f"sched:post_close_done:{mic}:{session_date_str}"
-                        ),
+                        dedupe_key=(f"sched:post_close_done:{mic}:{session_date_str}"),
                         dedupe_ttl=_POST_CLOSE_TTL,
                     )
                 )
@@ -294,9 +288,7 @@ class SessionAwareScheduler:
         if self._redis is None:
             return True
         # SET NX EX — returns True only if the key was newly set.
-        ok = await self._redis.set(
-            plan.dedupe_key, "1", ex=plan.dedupe_ttl, nx=True
-        )
+        ok = await self._redis.set(plan.dedupe_key, "1", ex=plan.dedupe_ttl, nx=True)
         return bool(ok)
 
 
@@ -324,9 +316,7 @@ async def _tick_async(now_utc: datetime | None = None) -> dict[str, Any]:
             }
             for s in plan.snapshots
         ],
-        "dispatched": [
-            {"task": p.task_name, "kwargs": p.kwargs} for p in dispatched
-        ],
+        "dispatched": [{"task": p.task_name, "kwargs": p.kwargs} for p in dispatched],
         "skipped": len(plan.planned) - len(dispatched),
     }
 

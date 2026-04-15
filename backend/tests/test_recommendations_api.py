@@ -9,7 +9,6 @@ production-hard-gate logic from ``api/recommendations.py``.
 
 from __future__ import annotations
 
-import pytest
 from backend.app.api.recommendations import _resolve_shadow_mode
 from backend.app.config import Settings
 
