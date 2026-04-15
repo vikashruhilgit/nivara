@@ -32,6 +32,7 @@ dependencies = [
     "transformers>=4.40.0",
     "torch>=2.2.0",
     "pandas-ta>=0.3.14b",
+    "kiteconnect>=5.0.0",
 ]
 
 [project.optional-dependencies]
@@ -103,4 +104,8 @@ module = [
     "torch",
     "torch.*",
 ]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["kiteconnect", "kiteconnect.*"]
 ignore_missing_imports = true

@@ -208,33 +208,54 @@ def test_broker_error_codes_cover_required_set() -> None:
     assert required <= {c.value for c in BrokerErrorCode}
 
 
-# --------------------------------------------------------------------- Zerodha stub
+# --------------------------------------------------------------------- Zerodha adapter
 
 
-async def test_zerodha_features_are_all_false() -> None:
-    adapter = ZerodhaAdapter()
+def _zerodha_with_mock_kite() -> ZerodhaAdapter:
+    """Build a ZerodhaAdapter with a stub KiteConnect client (no network)."""
+    from unittest.mock import MagicMock
+
+    fake_kite = MagicMock()
+    fake_kite.holdings.return_value = []
+    fake_kite.positions.return_value = {"net": [], "day": []}
+    fake_kite.orders.return_value = []
+    fake_kite.margins.return_value = {
+        "available": {"cash": "0"},
+        "utilised": {"debits": "0"},
+        "net": "0",
+    }
+    return ZerodhaAdapter(
+        api_key="k",
+        api_secret="s",
+        access_token="tok",
+        kite_client=fake_kite,
+    )
+
+
+async def test_zerodha_features_reflect_read_only_oauth() -> None:
+    adapter = _zerodha_with_mock_kite()
     f = adapter.features
-    assert f.supports_positions is False
-    assert f.supports_balances is False
-    assert f.supports_orders is False
+    assert f.supports_positions is True
+    assert f.supports_balances is True
+    assert f.supports_orders is True
     assert f.supports_place_order is False
-    assert f.supports_oauth is False
+    assert f.supports_oauth is True
+    assert f.supports_realtime_streaming is True
+    assert f.supports_paper_trading is False
+    assert f.requires_daily_reauth is True
 
 
-async def test_zerodha_methods_raise_not_implemented() -> None:
-    adapter = ZerodhaAdapter()
-    with pytest.raises(NotImplementedError):
-        await adapter.get_positions()
-    with pytest.raises(NotImplementedError):
-        await adapter.get_balances()
-    with pytest.raises(NotImplementedError):
-        await adapter.get_orders()
-    with pytest.raises(NotImplementedError):
-        adapter.normalize_symbol("RELIANCE")
+async def test_zerodha_place_order_raises_not_implemented() -> None:
+    adapter = _zerodha_with_mock_kite()
     with pytest.raises(NotImplementedError):
         await adapter.place_order(
             broker_symbol="RELIANCE", side="buy", quantity=1.0, idempotency_key="k"
         )
+
+
+async def test_zerodha_normalize_symbol_is_passthrough() -> None:
+    adapter = _zerodha_with_mock_kite()
+    assert adapter.normalize_symbol("RELIANCE") == "RELIANCE"
 
 
 # --------------------------------------------------------------------- ABC contract

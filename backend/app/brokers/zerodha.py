@@ -1,51 +1,213 @@
-"""Zerodha (Kite Connect) adapter — MVP stub.
+"""Zerodha (Kite Connect v3) adapter — read-only MVP.
 
-Every method except :pyattr:`features` raises :class:`NotImplementedError` so
-integration paths (portfolio sync, recommendations) can route requests here
-and fail fast during development. Full implementation ships in M4 (see brief
-``m4-22-zerodha-adapter.md``).
+Uses the official ``kiteconnect`` Python SDK. Because the SDK is synchronous
+(blocking HTTP + thread-unsafe websocket), all broker calls are wrapped in
+:func:`asyncio.to_thread` so the adapter honours the project's async-first
+convention.
+
+Auth model
+----------
+Kite Connect v3 uses a daily OAuth dance: the user exchanges a short-lived
+``request_token`` for a session-scoped ``access_token`` (valid until 06:00 AM
+IST the next day). This adapter consumes an already-minted ``access_token``;
+the OAuth redirect / exchange is handled elsewhere (see
+``backend.app.routers.broker_oauth``). When the token expires,
+:class:`kiteconnect.exceptions.TokenException` is raised and surfaced as
+:class:`BrokerAPIError` with :attr:`BrokerErrorCode.AUTH_EXPIRED` so the
+caller can trigger a re-auth redirect.
+
+Write-path
+----------
+``place_order`` intentionally raises :class:`NotImplementedError` — Zerodha
+order placement is explicitly post-MVP (see brief ``m4-22-zerodha-adapter.md``
+AC #8 and TechSpec v1.3).
 """
 
 from __future__ import annotations
 
+import asyncio
+import logging
+from decimal import Decimal
+from typing import TYPE_CHECKING, Any
+
 from backend.app.brokers.base import BrokerAdapter, BrokerFeatures
+from backend.app.brokers.errors import BrokerAPIError, BrokerErrorCode
 from backend.app.schemas.broker import (
     NormalizedBalance,
     NormalizedOrder,
     NormalizedPosition,
     OrderSide,
+    OrderStatus,
     OrderType,
 )
+from kiteconnect import KiteConnect
+from kiteconnect.exceptions import (
+    InputException,
+    KiteException,
+    NetworkException,
+    TokenException,
+)
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+logger = logging.getLogger(__name__)
+
+
+# Zerodha order status → NormalizedOrder.status.
+# Reference: https://kite.trade/docs/connect/v3/orders/#order-statuses
+_ORDER_STATUS_MAP: dict[str, OrderStatus] = {
+    "COMPLETE": "filled",
+    "OPEN": "new",
+    "CANCELLED": "canceled",
+    "REJECTED": "rejected",
+    "TRIGGER PENDING": "new",
+}
 
 
 class ZerodhaAdapter(BrokerAdapter):
+    """Read-only Zerodha Kite Connect v3 adapter."""
+
     broker_name = "zerodha"
 
-    def __init__(self, *, api_key: str | None = None, api_secret: str | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        api_key: str,
+        api_secret: str,
+        access_token: str,
+        kite_client: KiteConnect | None = None,
+    ) -> None:
         self._api_key = api_key
         self._api_secret = api_secret
+        self._access_token = access_token
+        if kite_client is None:
+            kite_client = KiteConnect(api_key=api_key)
+            kite_client.set_access_token(access_token)
+        self._kite = kite_client
+
+    # ------------------------------------------------------------------ features
 
     @property
     def features(self) -> BrokerFeatures:
         return BrokerFeatures(
-            supports_positions=False,
-            supports_balances=False,
-            supports_orders=False,
-            supports_place_order=False,
-            supports_oauth=False,
+            supports_positions=True,
+            supports_balances=True,
+            supports_orders=True,
+            supports_place_order=False,  # post-MVP
+            supports_oauth=True,
+            supports_realtime_streaming=True,
+            supports_paper_trading=False,
+            requires_daily_reauth=True,
         )
 
+    # ------------------------------------------------------------------ helpers
+
+    async def _call(self, fn: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
+        """Invoke a blocking kiteconnect call in a worker thread, translating errors."""
+        try:
+            return await asyncio.to_thread(fn, *args, **kwargs)
+        except TokenException as exc:
+            raise BrokerAPIError(
+                BrokerErrorCode.AUTH_EXPIRED,
+                f"Zerodha access token expired or invalid: {exc}",
+                broker=self.broker_name,
+            ) from exc
+        except NetworkException as exc:
+            raise BrokerAPIError(
+                BrokerErrorCode.NETWORK_TIMEOUT,
+                f"Zerodha network error: {exc}",
+                broker=self.broker_name,
+            ) from exc
+        except InputException as exc:
+            raise BrokerAPIError(
+                BrokerErrorCode.INSTRUMENT_UNKNOWN,
+                f"Zerodha rejected request: {exc}",
+                broker=self.broker_name,
+            ) from exc
+        except KiteException as exc:
+            raise BrokerAPIError(
+                BrokerErrorCode.UPSTREAM_DOWN,
+                f"Zerodha upstream error: {exc}",
+                broker=self.broker_name,
+            ) from exc
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.exception("Unexpected Zerodha SDK error")
+            raise BrokerAPIError(
+                BrokerErrorCode.UPSTREAM_DOWN,
+                f"Unexpected Zerodha error: {exc}",
+                broker=self.broker_name,
+            ) from exc
+
+    # ------------------------------------------------------------------ reads
+
     async def get_positions(self) -> list[NormalizedPosition]:
-        raise NotImplementedError("ZerodhaAdapter.get_positions ships in M4")
+        """Return a deduped union of long-term holdings and intraday net positions.
+
+        Zerodha exposes two position buckets:
+        * ``kite.holdings()`` — delivery / settled holdings (CNC).
+        * ``kite.positions()['net']`` — intraday MIS + overnight NRML nets.
+
+        We merge both and dedupe on ``(tradingsymbol, exchange)``; holdings win
+        on conflict because they carry the authoritative avg-cost basis.
+        """
+        holdings: list[dict[str, Any]] = await self._call(self._kite.holdings)
+        positions_resp: dict[str, Any] = await self._call(self._kite.positions)
+        net_positions: list[dict[str, Any]] = list(positions_resp.get("net", []))
+
+        seen: set[tuple[str, str]] = set()
+        normalized: list[NormalizedPosition] = []
+
+        for row in holdings:
+            key = (str(row.get("tradingsymbol", "")), str(row.get("exchange", "") or ""))
+            seen.add(key)
+            normalized.append(self._parse_holding(row))
+
+        for row in net_positions:
+            key = (str(row.get("tradingsymbol", "")), str(row.get("exchange", "") or ""))
+            if key in seen:
+                continue
+            # Skip zero-qty rows (Zerodha returns flat intraday rows for closed legs).
+            if Decimal(str(row.get("quantity", "0"))) == 0:
+                continue
+            seen.add(key)
+            normalized.append(self._parse_net_position(row))
+
+        return normalized
 
     async def get_balances(self) -> NormalizedBalance:
-        raise NotImplementedError("ZerodhaAdapter.get_balances ships in M4")
+        """Return equity-segment cash snapshot (INR)."""
+        margins: dict[str, Any] = await self._call(self._kite.margins, "equity")
+        available = margins.get("available", {}) or {}
+        utilised = margins.get("utilised", {}) or {}
+        cash = Decimal(str(available.get("cash", available.get("live_balance", "0"))))
+        # Kite exposes `net` = available - utilised; treat as equity proxy.
+        net_val = margins.get("net")
+        if net_val is None:
+            equity = cash - Decimal(str(utilised.get("debits", "0")))
+        else:
+            equity = Decimal(str(net_val))
+        return NormalizedBalance(
+            cash=cash,
+            equity=equity,
+            currency="INR",
+            account_id=str(margins.get("account_id") or self._api_key),
+        )
 
     async def get_orders(self, *, open_only: bool = False) -> list[NormalizedOrder]:
-        raise NotImplementedError("ZerodhaAdapter.get_orders ships in M4")
+        raw: list[dict[str, Any]] = await self._call(self._kite.orders)
+        parsed = [self._parse_order(o) for o in raw]
+        if open_only:
+            return [o for o in parsed if o.status in {"new", "partially_filled", "pending"}]
+        return parsed
+
+    # ------------------------------------------------------------------ normalize
 
     def normalize_symbol(self, broker_symbol: str) -> str:
-        raise NotImplementedError("ZerodhaAdapter.normalize_symbol ships in M4")
+        """Passthrough — real Zerodha↔canonical mapping lives in M4-22 S4."""
+        return broker_symbol
+
+    # ------------------------------------------------------------------ writes
 
     async def place_order(
         self,
@@ -57,4 +219,76 @@ class ZerodhaAdapter(BrokerAdapter):
         limit_price: float | None = None,
         idempotency_key: str,
     ) -> NormalizedOrder:
-        raise NotImplementedError("ZerodhaAdapter.place_order ships post-MVP")
+        raise NotImplementedError("Zerodha order placement post-MVP")
+
+    # ------------------------------------------------------------------ parse helpers
+
+    @staticmethod
+    def _parse_holding(raw: dict[str, Any]) -> NormalizedPosition:
+        qty = Decimal(str(raw.get("quantity", "0")))
+        avg = Decimal(str(raw.get("average_price", "0")))
+        last = Decimal(str(raw.get("last_price", "0")))
+        pnl = Decimal(str(raw.get("pnl", "0")))
+        market_value = last * qty
+        return NormalizedPosition(
+            broker_symbol=str(raw.get("tradingsymbol", "")),
+            quantity=qty,
+            avg_entry_price=avg,
+            current_price=last,
+            market_value=market_value,
+            unrealized_pl=pnl,
+            currency="INR",
+            exchange=raw.get("exchange"),
+        )
+
+    @staticmethod
+    def _parse_net_position(raw: dict[str, Any]) -> NormalizedPosition:
+        qty = Decimal(str(raw.get("quantity", "0")))
+        avg = Decimal(str(raw.get("average_price", "0")))
+        last = Decimal(str(raw.get("last_price", "0")))
+        pnl = Decimal(str(raw.get("pnl", "0")))
+        mv_raw = raw.get("value")
+        market_value = Decimal(str(mv_raw)) if mv_raw is not None else last * qty
+        return NormalizedPosition(
+            broker_symbol=str(raw.get("tradingsymbol", "")),
+            quantity=qty,
+            avg_entry_price=avg,
+            current_price=last,
+            market_value=market_value,
+            unrealized_pl=pnl,
+            currency="INR",
+            exchange=raw.get("exchange"),
+        )
+
+    @staticmethod
+    def _parse_order(raw: dict[str, Any]) -> NormalizedOrder:
+        status = _ORDER_STATUS_MAP.get(str(raw.get("status", "")).upper(), "pending")
+        transaction = str(raw.get("transaction_type", "BUY")).upper()
+        side: OrderSide = "buy" if transaction == "BUY" else "sell"
+        order_type_raw = str(raw.get("order_type", "MARKET")).upper()
+        order_type: OrderType
+        if order_type_raw == "LIMIT":
+            order_type = "limit"
+        elif order_type_raw in {"SL", "STOPLOSS"}:
+            order_type = "stop_limit"
+        elif order_type_raw in {"SL-M", "SL_M", "STOPLOSS_MARKET"}:
+            order_type = "stop"
+        else:
+            order_type = "market"
+
+        limit = raw.get("price")
+        stop = raw.get("trigger_price")
+        return NormalizedOrder(
+            broker_order_id=str(raw.get("order_id", "")),
+            broker_symbol=str(raw.get("tradingsymbol", "")),
+            side=side,
+            order_type=order_type,
+            quantity=Decimal(str(raw.get("quantity", "0"))),
+            filled_quantity=Decimal(str(raw.get("filled_quantity", "0"))),
+            limit_price=Decimal(str(limit)) if limit not in (None, 0, 0.0) else None,
+            stop_price=Decimal(str(stop)) if stop not in (None, 0, 0.0) else None,
+            status=status,
+            submitted_at=raw["order_timestamp"],
+            filled_at=raw.get("exchange_update_timestamp") if status == "filled" else None,
+            currency="INR",
+        )

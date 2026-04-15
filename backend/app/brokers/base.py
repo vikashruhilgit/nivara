@@ -33,6 +33,9 @@ class BrokerFeatures:
     supports_orders: bool
     supports_place_order: bool
     supports_oauth: bool
+    supports_realtime_streaming: bool = False
+    supports_paper_trading: bool = True
+    requires_daily_reauth: bool = False
 
 
 class BrokerAdapter(ABC):
