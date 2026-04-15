@@ -389,7 +389,50 @@ async def test_place_order_raises_not_implemented() -> None:
 
 def test_normalize_symbol_is_passthrough() -> None:
     adapter = _make_adapter(MagicMock())
+    # Whitespace + case are normalised but the ticker itself is unchanged.
     assert adapter.normalize_symbol("RELIANCE") == "RELIANCE"
+    assert adapter.normalize_symbol("  reliance  ") == "RELIANCE"
+
+
+# --------------------------------------------------------------------- symbol mapping (S4)
+
+
+def test_normalize_symbol_looks_up_mapping() -> None:
+    """AC #7: injected mapper resolves RELIANCE → (RELIANCE, XNSE)."""
+    mapping: dict[tuple[str, str | None], tuple[str, str]] = {
+        ("RELIANCE", "NSE"): ("RELIANCE", "XNSE"),
+        ("INFY", "NSE"): ("INFY", "XNSE"),
+    }
+
+    def mapper(broker_symbol: str, broker_exchange: str | None) -> tuple[str, str]:
+        return mapping[(broker_symbol, broker_exchange)]
+
+    adapter = _make_adapter(MagicMock())
+    adapter.symbol_mapper = mapper
+
+    assert adapter.resolve_canonical("RELIANCE", "NSE") == ("RELIANCE", "XNSE")
+    assert adapter.resolve_canonical("INFY", "NSE") == ("INFY", "XNSE")
+
+
+def test_resolve_canonical_falls_back_when_no_mapper() -> None:
+    """Without an injected mapper, NSE exchange is translated to XNSE."""
+    adapter = _make_adapter(MagicMock())
+    assert adapter.symbol_mapper is None
+    # Unknown ticker: passthrough uppercased + exchange translated.
+    assert adapter.resolve_canonical("SOMECO", "NSE") == ("SOMECO", "XNSE")
+
+
+def test_resolve_canonical_bse_maps_to_xbom() -> None:
+    """BSE exchange translates to the XBOM MIC in the fallback path."""
+    adapter = _make_adapter(MagicMock())
+    assert adapter.resolve_canonical("TCS", "BSE") == ("TCS", "XBOM")
+
+
+def test_resolve_canonical_defaults_to_xnse_when_exchange_missing() -> None:
+    """NSE is the dominant Zerodha venue — safest default for Indian equities."""
+    adapter = _make_adapter(MagicMock())
+    assert adapter.resolve_canonical("RELIANCE", None) == ("RELIANCE", "XNSE")
+    assert adapter.resolve_canonical("RELIANCE", "") == ("RELIANCE", "XNSE")
 
 
 def test_features_flags() -> None:

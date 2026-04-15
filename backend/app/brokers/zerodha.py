@@ -55,6 +55,29 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# Broker-reported exchange code → ISO MIC-style canonical code.
+# Zerodha holdings/positions include "NSE" or "BSE"; we canonicalise to
+# XNSE / XBOM so downstream modules don't need to special-case each broker.
+_BROKER_EXCHANGE_TO_MIC: dict[str, str] = {
+    "NSE": "XNSE",
+    "BSE": "XBOM",
+    # Passthrough if caller already supplied a MIC-style code.
+    "XNSE": "XNSE",
+    "XBOM": "XBOM",
+}
+
+
+def exchange_to_mic(broker_exchange: str | None) -> str:
+    """Return the canonical MIC-style exchange code for a Zerodha exchange.
+
+    Defaults to ``"XNSE"`` when the input is missing or unrecognised — NSE is
+    the dominant Zerodha venue and the safest fallback for Indian equities.
+    """
+    if not broker_exchange:
+        return "XNSE"
+    return _BROKER_EXCHANGE_TO_MIC.get(broker_exchange.strip().upper(), "XNSE")
+
+
 # Kite Connect access tokens expire daily at 06:00 IST (Asia/Kolkata).
 # See: https://kite.trade/docs/connect/v3/user/#login-flow
 _IST = ZoneInfo("Asia/Kolkata")
@@ -102,6 +125,7 @@ class ZerodhaAdapter(BrokerAdapter):
         access_token: str,
         access_token_issued_at: datetime | None = None,
         kite_client: KiteConnect | None = None,
+        symbol_mapper: Callable[[str, str | None], tuple[str, str]] | None = None,
     ) -> None:
         self._api_key = api_key
         self._api_secret = api_secret
@@ -111,6 +135,12 @@ class ZerodhaAdapter(BrokerAdapter):
             kite_client = KiteConnect(api_key=api_key)
             kite_client.set_access_token(access_token)
         self._kite = kite_client
+        # Optional resolver: (broker_symbol, broker_exchange) -> (canonical_symbol,
+        # canonical_exchange_mic). Callers with DB access wire this to
+        # :class:`SymbolMappingService`; tests can inject a pure dict-backed fake.
+        # When absent, :meth:`resolve_canonical` falls back to a MIC conversion
+        # of ``broker_exchange`` and the broker_symbol itself (uppercased).
+        self.symbol_mapper: Callable[[str, str | None], tuple[str, str]] | None = symbol_mapper
 
     # ------------------------------------------------------------------ token expiry
 
@@ -260,8 +290,46 @@ class ZerodhaAdapter(BrokerAdapter):
     # ------------------------------------------------------------------ normalize
 
     def normalize_symbol(self, broker_symbol: str) -> str:
-        """Passthrough — real Zerodha↔canonical mapping lives in M4-22 S4."""
-        return broker_symbol
+        """Return the canonical ticker string for a Zerodha tradingsymbol.
+
+        For Zerodha the tradingsymbol ("RELIANCE", "INFY", "M&M") is already
+        the canonical equity symbol — we just normalise whitespace and case.
+        The *exchange* half of the canonical pair is resolved separately via
+        :meth:`resolve_canonical`, which can consult the ``symbol_mappings``
+        table through an injected ``symbol_mapper``.
+
+        Mirrors :meth:`AlpacaAdapter.normalize_symbol` — sync, string-in/string-out,
+        honouring the base contract.
+        """
+        return broker_symbol.strip().upper()
+
+    def resolve_canonical(
+        self,
+        broker_symbol: str,
+        broker_exchange: str | None = None,
+    ) -> tuple[str, str]:
+        """Resolve ``(canonical_symbol, canonical_exchange_mic)`` for a Zerodha symbol.
+
+        Resolution order:
+
+        1. If ``self.symbol_mapper`` is set (typically wired to
+           :class:`SymbolMappingService` at the call site), delegate to it.
+           The mapper is expected to return ``(canonical_symbol, mic_exchange)``
+           where ``mic_exchange`` is one of ``"XNSE"`` / ``"XBOM"``.
+        2. Otherwise, fall back to ``(normalize_symbol(broker_symbol),
+           exchange_to_mic(broker_exchange))`` — Zerodha tradingsymbols are
+           canonical for equities, and the exchange translation covers the
+           NSE→XNSE / BSE→XBOM case required by AC #7.
+
+        Example:
+            ``("RELIANCE", "NSE")`` → ``("RELIANCE", "XNSE")``
+            ``("TCS",      "BSE")`` → ``("TCS",      "XBOM")``
+        """
+        bs = broker_symbol.strip()
+        if self.symbol_mapper is not None:
+            canonical_symbol, canonical_exchange = self.symbol_mapper(bs, broker_exchange)
+            return canonical_symbol, canonical_exchange
+        return self.normalize_symbol(bs), exchange_to_mic(broker_exchange)
 
     # ------------------------------------------------------------------ writes
 
