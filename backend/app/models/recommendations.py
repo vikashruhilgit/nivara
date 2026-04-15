@@ -1,4 +1,9 @@
-"""AI-generated investment recommendations surfaced to users."""
+"""AI-generated investment recommendations surfaced to users.
+
+Migration ``003_recommendation_actions_and_ai_analysis`` extends the
+``recommendation_type_enum`` from (buy/sell/hold) to five values
+(strong_buy/buy/hold/sell/strong_sell) per M3-17 AC #2.
+"""
 
 from __future__ import annotations
 
@@ -12,7 +17,13 @@ from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 RecommendationTypeEnum = Enum(
-    "buy", "sell", "hold", name="recommendation_type_enum", native_enum=True
+    "strong_buy",
+    "buy",
+    "hold",
+    "sell",
+    "strong_sell",
+    name="recommendation_type_enum",
+    native_enum=True,
 )
 RecommendationStatusEnum = Enum(
     "pending",

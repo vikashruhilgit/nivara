@@ -88,6 +88,21 @@ class Settings(BaseSettings):
     reddit_client_secret: str | None = None
     reddit_user_agent: str = "investiq-sentiment/0.1 (by /u/investiq_bot)"
 
+    # --- MODE 4: AI-Enhanced Analysis (M3-17) ---------------------------------
+    # AI analysis is OFF by default. When enabled, a Celery task in the
+    # ``ai_analysis`` queue runs per recommendation. Shadow mode is the Phase 1
+    # safety gate: outputs are logged but not blended into the composite.
+    # Disabling shadow mode in production requires an explicit legal-review
+    # flag (``ai_analysis_legal_review_approved=true``); otherwise the API
+    # layer forces shadow_mode back on (MODE 4 AC #2).
+    ai_analysis_enabled: bool = False
+    ai_analysis_shadow_mode: bool = True
+    ai_analysis_weight: float = 0.20  # capped by MAX_AI_WEIGHT=0.30 in code
+    ai_analysis_legal_review_approved: bool = False
+    ai_analysis_provider: str = "claude_cli"  # claude_cli | api
+    ai_analysis_timeout_s: float = 30.0
+    anthropic_api_key: str | None = None
+
 
 @lru_cache
 def get_settings() -> Settings:
