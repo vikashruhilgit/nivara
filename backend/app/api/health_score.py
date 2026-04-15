@@ -24,8 +24,6 @@ brief.
 
 from __future__ import annotations
 
-import contextlib
-import json
 import logging
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
@@ -33,7 +31,7 @@ from uuid import UUID
 
 import pandas as pd
 from backend.app.analysis.health_score import compute_health_score
-from backend.app.analysis.technical import load_ohlcv_from_db
+from backend.app.analysis.technical import load_close_series_bulk
 from backend.app.auth.dependencies import get_current_user
 from backend.app.db import get_session
 from backend.app.models.broker_connections import BrokerConnection
@@ -94,16 +92,19 @@ async def _compute_response(session: AsyncSession, user_id: UUID) -> HealthScore
     technical_scores: list[float | None] = [None] * len(raw)
 
     if total_value > 0:
+        # Bulk load close series for all holdings in one DB round-trip.
+        instrument_ids = [instrument.id for _, instrument, _ in raw]
+        closes_by_id = await load_close_series_bulk(session, instrument_ids, bars=_PRICE_BARS)
         for _position, instrument, value in raw:
             weight = float(value / total_value)
             holding_weights.append(weight)
-            frame = await load_ohlcv_from_db(session, instrument.id, bars=_PRICE_BARS)
-            if frame.empty:
+            series = closes_by_id.get(instrument.id)
+            if series is None or series.empty:
                 continue
-            base = float(frame["close"].iloc[0])
+            base = float(series.iloc[0])
             if base <= 0:
                 continue
-            normalised = (frame["close"].astype(float) / base) * weight
+            normalised = (series / base) * weight
             portfolio_value_series.append(normalised)
 
     if portfolio_value_series:
@@ -176,8 +177,12 @@ async def get_health_score(
             logger.warning("Health-score cache payload invalid, recomputing: %s", exc)
 
     response = await _compute_response(session, current_user.id)
-    with contextlib.suppress(Exception):
-        await redis.set(key, json.dumps(response.model_dump()), ex=_CACHE_TTL_SECONDS)
+    # Cache write is best-effort but failures are logged so a broken cache
+    # doesn't silently turn every request into a fresh compute in prod.
+    try:
+        await redis.set(key, response.model_dump_json(), ex=_CACHE_TTL_SECONDS)
+    except Exception as exc:  # noqa: BLE001 — Redis optional in dev / tests
+        logger.warning("Health-score cache write failed: %s", exc)
     return response
 
 

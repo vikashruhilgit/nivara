@@ -525,9 +525,7 @@ def _assemble_from_cache(
     frame = _ensure_ohlcv(ohlcv)
     flags = [name for name, r in cached.items() if r.insufficient_data]
 
-    scored = {
-        k: r for k, r in cached.items() if not r.insufficient_data and r.value is not None
-    }
+    scored = {k: r for k, r in cached.items() if not r.insufficient_data and r.value is not None}
     if not scored:
         composite: float | None = None
         action: str | None = None
@@ -565,9 +563,8 @@ async def load_ohlcv_from_db(
     ``session`` is an async SQLAlchemy session. Imported lazily to keep this
     module usable from pure-python test paths that don't touch the DB.
     """
-    from sqlalchemy import select
-
     from backend.app.models.price_history import PriceHistory
+    from sqlalchemy import select
 
     stmt = (
         select(
@@ -597,6 +594,56 @@ async def load_ohlcv_from_db(
     return df
 
 
+async def load_close_series_bulk(
+    session: Any,
+    instrument_ids: list[UUID],
+    bars: int = 252,
+) -> dict[UUID, pd.Series]:
+    """Load close-price Series for many instruments in one round-trip.
+
+    Returns a dict keyed by instrument_id; instruments with no price history
+    are simply absent from the dict. Per-instrument limit is applied with a
+    window function so a portfolio of 20 holdings doesn't pull 20 * 252 rows
+    from a single large IN-query. Used by the portfolio-level Risk Meter and
+    Health Score endpoints to avoid N+1 queries across holdings.
+    """
+    if not instrument_ids:
+        return {}
+    from backend.app.models.price_history import PriceHistory
+    from sqlalchemy import func, select
+
+    # Row-numbered subquery: pick the latest ``bars`` rows per instrument.
+    row_num = (
+        func.row_number()
+        .over(
+            partition_by=PriceHistory.instrument_id,
+            order_by=PriceHistory.timestamp.desc(),
+        )
+        .label("rn")
+    )
+    subq = (
+        select(
+            PriceHistory.instrument_id,
+            PriceHistory.timestamp,
+            PriceHistory.close,
+            row_num,
+        )
+        .where(PriceHistory.instrument_id.in_(instrument_ids))
+        .subquery()
+    )
+    stmt = select(subq.c.instrument_id, subq.c.timestamp, subq.c.close).where(subq.c.rn <= bars)
+    rows = (await session.execute(stmt)).all()
+    if not rows:
+        return {}
+    df = pd.DataFrame(rows, columns=["instrument_id", "timestamp", "close"])
+    df["close"] = df["close"].apply(lambda v: float(v) if isinstance(v, Decimal) else v)
+    out: dict[UUID, pd.Series] = {}
+    for instrument_id, group in df.groupby("instrument_id"):
+        series = group.set_index("timestamp")["close"].sort_index().astype(float)
+        out[instrument_id] = series
+    return out
+
+
 __all__ = [
     "IndicatorResult",
     "TechnicalAnalysis",
@@ -604,5 +651,6 @@ __all__ = [
     "analyze_with_cache",
     "cache_indicators",
     "load_cached_indicators",
+    "load_close_series_bulk",
     "load_ohlcv_from_db",
 ]

@@ -132,11 +132,12 @@ async def api_client(
     async def _user_override() -> User:
         return dummy_user
 
-    async def _fake_load(_sess, instrument_id: UUID, bars: int = 252) -> pd.DataFrame:
-        seed = int(instrument_id.int % 2**32)
-        return pd.DataFrame({"close": _build_close(n=bars, seed=seed)})
+    async def _fake_bulk(
+        _sess, instrument_ids: list[UUID], bars: int = 252
+    ) -> dict[UUID, pd.Series]:
+        return {iid: _build_close(n=bars, seed=int(iid.int % 2**32)) for iid in instrument_ids}
 
-    monkeypatch.setattr(health_score_module, "load_ohlcv_from_db", _fake_load)
+    monkeypatch.setattr(health_score_module, "load_close_series_bulk", _fake_bulk)
 
     fake_redis = fakeredis.aioredis.FakeRedis()
 

@@ -27,7 +27,7 @@ from uuid import UUID
 
 import pandas as pd
 from backend.app.analysis.risk_meter import RiskMeterResult, compute_risk_meter
-from backend.app.analysis.technical import load_ohlcv_from_db
+from backend.app.analysis.technical import load_close_series_bulk
 from backend.app.auth.dependencies import get_current_user
 from backend.app.db import get_session
 from backend.app.models.broker_connections import BrokerConnection
@@ -90,14 +90,17 @@ async def _load_portfolio_context(
             oldest = position.as_of
 
     if total_value > 0:
+        # Single bulk load of close series across all holdings to avoid an
+        # N+1 query (one DB round-trip instead of one per holding).
+        instrument_ids = [instrument.id for _, instrument, _ in raw_values]
+        closes_by_id = await load_close_series_bulk(session, instrument_ids, bars=_PRICE_BARS)
         for _position, instrument, value in raw_values:
             weight = float(value / total_value)
             holding_weights.append(weight)
             weights_by_symbol[instrument.symbol] = weight
-            # Load OHLCV; tolerate instruments without price history.
-            frame = await load_ohlcv_from_db(session, instrument.id, bars=_PRICE_BARS)
-            if not frame.empty:
-                price_series[instrument.symbol] = frame["close"].astype(float)
+            series = closes_by_id.get(instrument.id)
+            if series is not None and not series.empty:
+                price_series[instrument.symbol] = series
 
     return holding_weights, weights_by_symbol, price_series, oldest
 
