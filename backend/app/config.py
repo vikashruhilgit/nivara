@@ -103,6 +103,12 @@ class Settings(BaseSettings):
     ai_analysis_timeout_s: float = 30.0
     anthropic_api_key: str | None = None
 
+    # --- MODE E: Risk Guardian & Notifications (M3-20) ------------------------
+    # Expo push-service access token used by the dispatcher to call the
+    # authenticated Expo Push API. When unset, push delivery is skipped and
+    # notifications remain in-app only.
+    expo_push_access_token: str | None = None
+
 
 @lru_cache
 def get_settings() -> Settings:
