@@ -1,0 +1,12 @@
+## WORKER_SUMMARY
+- subtask_id: m3-19-safety-fixes
+- status: completed
+- files_modified: [backend/app/safety/guardian.py, backend/tests/test_safety_guardian.py]
+- files_created: []
+- lines_added: ~150
+- lines_removed: ~25
+- tests_run: 17
+- tests_passed: 17
+- tests_failed: 0
+- error: none
+- notes: Wired KillSwitchService into SafetyGuardian.validate_action with new CODE_KILL_SWITCH constant; refactored check_duplicate_order to atomic ZADD NX (race-safe); added 3 tests covering kill-switch block, kill-switch inactive passthrough, and concurrent duplicate-order race.
