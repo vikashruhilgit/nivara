@@ -9,11 +9,12 @@ that records ``add(...)`` calls — no real DB required.
 
 from __future__ import annotations
 
+import asyncio
 import time
 from collections.abc import AsyncGenerator
 from decimal import Decimal
 from typing import Any
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import fakeredis.aioredis
 import pytest
@@ -22,6 +23,7 @@ from backend.app.models.audit_log import AuditLog
 from backend.app.safety.guardian import (
     CODE_DAILY_LOSS,
     CODE_DUPLICATE_ORDER,
+    CODE_KILL_SWITCH,
     CODE_MAX_DRAWDOWN,
     CODE_POSITION_SIZE,
     EVENT_SAFETY_VIOLATION,
@@ -269,3 +271,92 @@ async def test_duplicate_order_distinguishes_side_and_qty(
         redis, user_id=user_id, symbol="AAPL", side="buy", qty=Decimal("11")
     )
     assert different_qty.allowed is True
+
+
+# ----------------------------------------------------- kill switch + race tests
+
+
+class _FakeKillSwitch:
+    """Minimal duck-typed stand-in for :class:`KillSwitchService`."""
+
+    def __init__(self, active: bool = True) -> None:
+        self._active = active
+        self.calls: list[UUID] = []
+
+    async def is_active(self, user_id: UUID) -> bool:
+        self.calls.append(user_id)
+        return self._active
+
+
+async def test_validate_action_blocked_by_kill_switch(
+    guardian: SafetyGuardian,
+    session: _FakeSession,
+    redis: fakeredis.aioredis.FakeRedis,
+) -> None:
+    """AC #6: when the kill switch is active, validate_action blocks every order."""
+    user_id = uuid4()
+    fake = _FakeKillSwitch(active=True)
+    decision = await guardian.validate_action(
+        redis,
+        user_id=user_id,
+        instrument_id=uuid4(),
+        symbol="AAPL",
+        side="buy",
+        qty=Decimal("10"),
+        proposed_value=Decimal("500"),
+        portfolio_value=Decimal("10000"),
+        start_of_day_value=Decimal("10000"),
+        peak_value=Decimal("10000"),
+        kill_switch=fake,  # type: ignore[arg-type]
+    )
+    assert decision.allowed is False
+    assert decision.code == CODE_KILL_SWITCH
+    assert fake.calls == [user_id]
+    rows = _audit_rows(session)
+    assert len(rows) == 1
+    assert rows[0].event_type == EVENT_SAFETY_VIOLATION
+    assert rows[0].event_data is not None
+    assert rows[0].event_data["code"] == CODE_KILL_SWITCH
+
+
+async def test_validate_action_allowed_when_kill_switch_inactive(
+    guardian: SafetyGuardian,
+    redis: fakeredis.aioredis.FakeRedis,
+) -> None:
+    """An inactive kill switch must not interfere with normal validation."""
+    fake = _FakeKillSwitch(active=False)
+    decision = await guardian.validate_action(
+        redis,
+        user_id=uuid4(),
+        instrument_id=uuid4(),
+        symbol="AAPL",
+        side="buy",
+        qty=Decimal("10"),
+        proposed_value=Decimal("500"),  # 5 % — under cap
+        portfolio_value=Decimal("10000"),
+        start_of_day_value=Decimal("10000"),
+        peak_value=Decimal("10000"),
+        kill_switch=fake,  # type: ignore[arg-type]
+    )
+    assert decision.allowed is True
+
+
+async def test_duplicate_order_race_is_atomic(
+    guardian: SafetyGuardian,
+    redis: fakeredis.aioredis.FakeRedis,
+) -> None:
+    """Two concurrent identical checks: exactly one wins, one is rejected."""
+    user_id = uuid4()
+    results = await asyncio.gather(
+        guardian.check_duplicate_order(
+            redis, user_id=user_id, symbol="AAPL", side="buy", qty=Decimal("10")
+        ),
+        guardian.check_duplicate_order(
+            redis, user_id=user_id, symbol="AAPL", side="buy", qty=Decimal("10")
+        ),
+    )
+    allowed = [r for r in results if r.allowed]
+    rejected = [r for r in results if not r.allowed]
+    assert len(allowed) == 1
+    assert len(rejected) == 1
+    assert rejected[0].code == CODE_DUPLICATE_ORDER

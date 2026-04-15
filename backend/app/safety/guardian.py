@@ -19,13 +19,16 @@ from __future__ import annotations
 
 import time
 from decimal import Decimal
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
 from backend.app.schemas.safety import SafetyDecision
 from backend.app.services.audit import AuditService
 from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession
+
+if TYPE_CHECKING:
+    from backend.app.safety.kill_switch import KillSwitchService
 
 EVENT_SAFETY_VIOLATION = "safety.violation"
 
@@ -36,6 +39,7 @@ CODE_POSITION_SIZE = "position_size_exceeded"
 CODE_DAILY_LOSS = "daily_loss_exceeded"
 CODE_MAX_DRAWDOWN = "max_drawdown_exceeded"
 CODE_DUPLICATE_ORDER = "duplicate_order"
+CODE_KILL_SWITCH = "kill_switch_active"
 
 
 def _to_float(value: Decimal) -> float:
@@ -230,10 +234,15 @@ class SafetyGuardian:
     ) -> SafetyDecision:
         """Reject a duplicate ``(symbol, side, qty)`` within ``window_seconds``.
 
-        Implementation: a Redis sorted set keyed per user with current
-        monotonic timestamp as the score. Entries older than the window are
-        purged before the lookup to keep the set bounded. Uses ``ZSCORE`` to
-        avoid a false positive on the member we would insert ourselves.
+        Implementation: a Redis sorted set keyed per user with the current
+        timestamp as the score. We use ``ZADD ... NX`` to atomically claim
+        the slot — if the member already exists (within the rolling window)
+        the ZADD is a no-op and we treat it as a duplicate. This collapses
+        check + record into a single round-trip and is race-safe for
+        concurrent callers (one wins, the rest see ``added == 0``).
+
+        After this call returns ``allowed=True``, the order has already been
+        recorded; no separate :meth:`record_order` call is needed.
         """
 
         key = self._orders_key(user_id)
@@ -241,19 +250,24 @@ class SafetyGuardian:
         now = time.time()
         cutoff = now - window_seconds
 
-        # Trim entries older than the rolling window.
+        # Trim entries older than the rolling window so stale members can be
+        # re-used by ZADD NX below.
         await redis.zremrangebyscore(key, "-inf", cutoff)
+        # Atomically insert if absent. ``added`` is 1 if we won the slot,
+        # 0 if a concurrent / earlier caller already claimed it.
+        added = await redis.zadd(key, {member: now}, nx=True)
         # Bound membership TTL so abandoned users don't leak keys.
         await redis.expire(key, window_seconds * 2)
 
-        existing_score = await redis.zscore(key, member)
-        if existing_score is not None and float(existing_score) >= cutoff:
+        if added == 0:
+            # Member already present with score >= cutoff (we trimmed older).
+            existing_score = await redis.zscore(key, member)
             details: dict[str, Any] = {
                 "symbol": symbol,
                 "side": side,
                 "qty": _to_float(qty),
                 "window_seconds": window_seconds,
-                "last_seen_ts": float(existing_score),
+                "last_seen_ts": float(existing_score) if existing_score is not None else now,
             }
             reason = f"Duplicate order for {symbol} {side} {qty} within {window_seconds}s window."
             await self._record_violation(
@@ -278,7 +292,14 @@ class SafetyGuardian:
         qty: Decimal,
         window_seconds: int = 60,
     ) -> None:
-        """Record an accepted order so future duplicate checks see it."""
+        """Record an accepted order so future duplicate checks see it.
+
+        .. note::
+           As of the atomic ``check_duplicate_order`` refactor, a successful
+           check already records the order. This method is retained for API
+           compatibility (e.g. idempotent replay or seeding fixtures) and
+           overwrites the score with ``now`` so the rolling window restarts.
+        """
 
         key = self._orders_key(user_id)
         member = self._order_member(symbol, side, qty)
@@ -304,47 +325,76 @@ class SafetyGuardian:
         daily_loss_pct: Decimal = Decimal("0.02"),
         max_drawdown_pct: Decimal = Decimal("0.10"),
         window_seconds: int = 60,
+        kill_switch: KillSwitchService | None = None,
     ) -> SafetyDecision:
-        """Run every check in turn and return the first failure (or allow)."""
+        """Run every check in turn and return the first failure (or allow).
 
-        checks = [
-            await self.validate_position_size(
+        When ``kill_switch`` is supplied, it is consulted first — if active,
+        all automation is blocked regardless of the other checks (AC #6).
+        """
+
+        if kill_switch is not None and await kill_switch.is_active(user_id):
+            reason = "Kill switch is active — all automation blocked."
+            details: dict[str, Any] = {}
+            await self._record_violation(
                 user_id=user_id,
-                instrument_id=instrument_id,
-                proposed_value=proposed_value,
-                portfolio_value=portfolio_value,
-                max_pct=max_position_pct,
-            ),
-            await self.check_daily_loss(
-                user_id=user_id,
-                current_value=portfolio_value,
-                start_of_day_value=start_of_day_value,
-                limit_pct=daily_loss_pct,
-            ),
-            await self.check_max_drawdown(
-                user_id=user_id,
-                current_value=portfolio_value,
-                peak_value=peak_value,
-                limit_pct=max_drawdown_pct,
-            ),
-            await self.check_duplicate_order(
-                redis,
-                user_id=user_id,
-                symbol=symbol,
-                side=side,
-                qty=qty,
-                window_seconds=window_seconds,
-            ),
-        ]
-        for decision in checks:
-            if not decision.allowed:
-                return decision
+                code=CODE_KILL_SWITCH,
+                reason=reason,
+                details=details,
+            )
+            return SafetyDecision(
+                allowed=False, reason=reason, code=CODE_KILL_SWITCH, details=details
+            )
+
+        position_decision = await self.validate_position_size(
+            user_id=user_id,
+            instrument_id=instrument_id,
+            proposed_value=proposed_value,
+            portfolio_value=portfolio_value,
+            max_pct=max_position_pct,
+        )
+        if not position_decision.allowed:
+            return position_decision
+
+        daily_decision = await self.check_daily_loss(
+            user_id=user_id,
+            current_value=portfolio_value,
+            start_of_day_value=start_of_day_value,
+            limit_pct=daily_loss_pct,
+        )
+        if not daily_decision.allowed:
+            return daily_decision
+
+        drawdown_decision = await self.check_max_drawdown(
+            user_id=user_id,
+            current_value=portfolio_value,
+            peak_value=peak_value,
+            limit_pct=max_drawdown_pct,
+        )
+        if not drawdown_decision.allowed:
+            return drawdown_decision
+
+        # Duplicate check is intentionally last because it mutates Redis state
+        # (atomic ZADD NX). Running it after the read-only checks avoids
+        # claiming a slot we'd then immediately reject for another reason.
+        duplicate_decision = await self.check_duplicate_order(
+            redis,
+            user_id=user_id,
+            symbol=symbol,
+            side=side,
+            qty=qty,
+            window_seconds=window_seconds,
+        )
+        if not duplicate_decision.allowed:
+            return duplicate_decision
+
         return SafetyDecision(allowed=True)
 
 
 __all__ = [
     "CODE_DAILY_LOSS",
     "CODE_DUPLICATE_ORDER",
+    "CODE_KILL_SWITCH",
     "CODE_MAX_DRAWDOWN",
     "CODE_POSITION_SIZE",
     "EVENT_SAFETY_VIOLATION",
