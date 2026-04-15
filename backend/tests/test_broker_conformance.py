@@ -7,6 +7,7 @@ and :class:`ZerodhaAdapter` (stub: ``NotImplementedError`` on every method).
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import UTC, datetime
 from decimal import Decimal
 
@@ -208,33 +209,284 @@ def test_broker_error_codes_cover_required_set() -> None:
     assert required <= {c.value for c in BrokerErrorCode}
 
 
-# --------------------------------------------------------------------- Zerodha stub
+# --------------------------------------------------------------------- Zerodha adapter
 
 
-async def test_zerodha_features_are_all_false() -> None:
-    adapter = ZerodhaAdapter()
+def _zerodha_with_mock_kite() -> ZerodhaAdapter:
+    """Build a ZerodhaAdapter with a stub KiteConnect client (no network)."""
+    from unittest.mock import MagicMock
+
+    fake_kite = MagicMock()
+    fake_kite.holdings.return_value = []
+    fake_kite.positions.return_value = {"net": [], "day": []}
+    fake_kite.orders.return_value = []
+    fake_kite.margins.return_value = {
+        "available": {"cash": "0"},
+        "utilised": {"debits": "0"},
+        "net": "0",
+    }
+    return ZerodhaAdapter(
+        api_key="k",
+        api_secret="s",
+        access_token="tok",
+        kite_client=fake_kite,
+    )
+
+
+async def test_zerodha_features_reflect_read_only_oauth() -> None:
+    adapter = _zerodha_with_mock_kite()
     f = adapter.features
-    assert f.supports_positions is False
-    assert f.supports_balances is False
-    assert f.supports_orders is False
+    assert f.supports_positions is True
+    assert f.supports_balances is True
+    assert f.supports_orders is True
     assert f.supports_place_order is False
-    assert f.supports_oauth is False
+    assert f.supports_oauth is True
+    assert f.supports_realtime_streaming is True
+    assert f.supports_paper_trading is False
+    assert f.requires_daily_reauth is True
 
 
-async def test_zerodha_methods_raise_not_implemented() -> None:
-    adapter = ZerodhaAdapter()
-    with pytest.raises(NotImplementedError):
-        await adapter.get_positions()
-    with pytest.raises(NotImplementedError):
-        await adapter.get_balances()
-    with pytest.raises(NotImplementedError):
-        await adapter.get_orders()
-    with pytest.raises(NotImplementedError):
-        adapter.normalize_symbol("RELIANCE")
+async def test_zerodha_place_order_raises_not_implemented() -> None:
+    adapter = _zerodha_with_mock_kite()
     with pytest.raises(NotImplementedError):
         await adapter.place_order(
             broker_symbol="RELIANCE", side="buy", quantity=1.0, idempotency_key="k"
         )
+
+
+async def test_zerodha_normalize_symbol_is_passthrough() -> None:
+    adapter = _zerodha_with_mock_kite()
+    assert adapter.normalize_symbol("RELIANCE") == "RELIANCE"
+
+
+# --------------------------------------------------------------------- Zerodha error mapping
+
+
+async def test_zerodha_token_exception_maps_to_auth_expired() -> None:
+    from kiteconnect.exceptions import TokenException
+
+    fake_kite = _zerodha_with_mock_kite()._kite
+    fake_kite.holdings.side_effect = TokenException("expired")
+    adapter = ZerodhaAdapter(api_key="k", api_secret="s", access_token="t", kite_client=fake_kite)
+    with pytest.raises(BrokerAPIError) as excinfo:
+        await adapter.get_positions()
+    assert excinfo.value.code == BrokerErrorCode.AUTH_EXPIRED
+    assert excinfo.value.broker == "zerodha"
+
+
+async def test_zerodha_network_exception_maps_to_network_timeout() -> None:
+    from kiteconnect.exceptions import NetworkException
+
+    fake_kite = _zerodha_with_mock_kite()._kite
+    fake_kite.margins.side_effect = NetworkException("connection reset")
+    adapter = ZerodhaAdapter(api_key="k", api_secret="s", access_token="t", kite_client=fake_kite)
+    with pytest.raises(BrokerAPIError) as excinfo:
+        await adapter.get_balances()
+    assert excinfo.value.code == BrokerErrorCode.NETWORK_TIMEOUT
+    assert excinfo.value.broker == "zerodha"
+
+
+# --------------------------------------------------------------------- Parametrized behavioural contract
+#
+# Any adapter fixture passed to these tests must satisfy the same behavioural
+# contract — documented in :class:`BrokerAdapter`. Broker-specific values
+# (currency, exchange) are asserted separately; the contract only checks
+# *shapes* (types, enum membership, required fields).
+
+
+def _alpaca_contract_adapter() -> BrokerAdapter:
+    return _alpaca_with_routes(
+        {
+            ("GET", "/v2/positions"): httpx.Response(200, json=[_SAMPLE_POSITION]),
+            ("GET", "/v2/account"): httpx.Response(200, json=_SAMPLE_ACCOUNT),
+            ("GET", "/v2/orders"): httpx.Response(200, json=[_SAMPLE_ORDER]),
+        }
+    )
+
+
+def _zerodha_contract_adapter() -> BrokerAdapter:
+    from unittest.mock import MagicMock
+
+    fake_kite = MagicMock()
+    fake_kite.holdings.return_value = [
+        {
+            "tradingsymbol": "RELIANCE",
+            "exchange": "NSE",
+            "quantity": 10,
+            "average_price": 2400.50,
+            "last_price": 2500.00,
+            "pnl": 995.00,
+        }
+    ]
+    fake_kite.positions.return_value = {"net": [], "day": []}
+    fake_kite.margins.return_value = {
+        "available": {"cash": "15000.00"},
+        "utilised": {"debits": "500.00"},
+        "net": "14500.00",
+        "account_id": "ZD1234",
+    }
+    fake_kite.orders.return_value = [
+        {
+            "order_id": "zo-1",
+            "tradingsymbol": "RELIANCE",
+            "exchange": "NSE",
+            "transaction_type": "BUY",
+            "order_type": "MARKET",
+            "quantity": 10,
+            "filled_quantity": 10,
+            "price": 0,
+            "trigger_price": 0,
+            "status": "COMPLETE",
+            "order_timestamp": datetime(2026, 4, 15, 9, 30, tzinfo=UTC),
+            "exchange_update_timestamp": datetime(2026, 4, 15, 9, 30, 1, tzinfo=UTC),
+        }
+    ]
+    return ZerodhaAdapter(api_key="k", api_secret="s", access_token="t", kite_client=fake_kite)
+
+
+ADAPTER_FACTORIES = [
+    pytest.param(_alpaca_contract_adapter, id="alpaca"),
+    pytest.param(_zerodha_contract_adapter, id="zerodha"),
+]
+
+
+@pytest.mark.parametrize("factory", ADAPTER_FACTORIES)
+async def test_contract_features_shape(factory: Callable[[], BrokerAdapter]) -> None:
+    """Every adapter exposes the full :class:`BrokerFeatures` dataclass."""
+    adapter = factory()
+    try:
+        f = adapter.features
+        # All BrokerFeatures fields are booleans.
+        for attr in (
+            "supports_positions",
+            "supports_balances",
+            "supports_orders",
+            "supports_place_order",
+            "supports_oauth",
+            "supports_realtime_streaming",
+            "supports_paper_trading",
+            "requires_daily_reauth",
+        ):
+            assert isinstance(getattr(f, attr), bool), f"{attr} must be bool"
+        # MVP contract: both adapters are read-only.
+        assert f.supports_place_order is False
+        assert f.supports_positions is True
+        assert f.supports_balances is True
+        assert f.supports_orders is True
+    finally:
+        close = getattr(adapter, "aclose", None)
+        if close is not None:
+            await close()
+
+
+@pytest.mark.parametrize("factory", ADAPTER_FACTORIES)
+async def test_contract_get_positions_returns_normalized(
+    factory: Callable[[], BrokerAdapter],
+) -> None:
+    adapter = factory()
+    try:
+        positions = await adapter.get_positions()
+        assert isinstance(positions, list)
+        assert len(positions) >= 1
+        for p in positions:
+            assert isinstance(p, NormalizedPosition)
+            # Required normalized fields (market_value, unrealized_pl per schema).
+            assert isinstance(p.broker_symbol, str) and p.broker_symbol
+            assert isinstance(p.quantity, Decimal)
+            assert isinstance(p.avg_entry_price, Decimal)
+            assert isinstance(p.current_price, Decimal)
+            assert isinstance(p.market_value, Decimal)
+            assert isinstance(p.unrealized_pl, Decimal)
+    finally:
+        close = getattr(adapter, "aclose", None)
+        if close is not None:
+            await close()
+
+
+@pytest.mark.parametrize("factory", ADAPTER_FACTORIES)
+async def test_contract_get_balances_returns_normalized(
+    factory: Callable[[], BrokerAdapter],
+) -> None:
+    adapter = factory()
+    try:
+        bal = await adapter.get_balances()
+        assert isinstance(bal, NormalizedBalance)
+        assert isinstance(bal.cash, Decimal)
+        assert isinstance(bal.equity, Decimal)
+        assert bal.currency in {"USD", "INR", "EUR", "GBP"}
+        assert isinstance(bal.account_id, str)
+    finally:
+        close = getattr(adapter, "aclose", None)
+        if close is not None:
+            await close()
+
+
+_ALLOWED_ORDER_STATUSES = {
+    "new",
+    "partially_filled",
+    "filled",
+    "canceled",
+    "rejected",
+    "expired",
+    "pending",
+}
+
+
+@pytest.mark.parametrize("factory", ADAPTER_FACTORIES)
+async def test_contract_get_orders_returns_normalized_enum_status(
+    factory: Callable[[], BrokerAdapter],
+) -> None:
+    adapter = factory()
+    try:
+        orders = await adapter.get_orders()
+        assert isinstance(orders, list)
+        assert len(orders) >= 1
+        for o in orders:
+            assert isinstance(o, NormalizedOrder)
+            # status MUST be the normalized enum, never a raw broker string
+            # like "COMPLETE" or "TRIGGER PENDING".
+            assert o.status in _ALLOWED_ORDER_STATUSES
+            assert o.side in {"buy", "sell"}
+            assert o.order_type in {"market", "limit", "stop", "stop_limit"}
+    finally:
+        close = getattr(adapter, "aclose", None)
+        if close is not None:
+            await close()
+
+
+@pytest.mark.parametrize("factory", ADAPTER_FACTORIES)
+async def test_contract_place_order_raises_not_implemented(
+    factory: Callable[[], BrokerAdapter],
+) -> None:
+    adapter = factory()
+    try:
+        with pytest.raises(NotImplementedError):
+            await adapter.place_order(
+                broker_symbol="SYM",
+                side="buy",
+                quantity=1.0,
+                idempotency_key="test-key",
+            )
+    finally:
+        close = getattr(adapter, "aclose", None)
+        if close is not None:
+            await close()
+
+
+@pytest.mark.parametrize("factory", ADAPTER_FACTORIES)
+async def test_contract_normalize_symbol_is_sync_and_uppercases(
+    factory: Callable[[], BrokerAdapter],
+) -> None:
+    adapter = factory()
+    try:
+        # Sync (not coroutine), string-in / string-out per base contract.
+        result = adapter.normalize_symbol("  abc  ")
+        assert isinstance(result, str)
+        assert result == "ABC"
+    finally:
+        close = getattr(adapter, "aclose", None)
+        if close is not None:
+            await close()
 
 
 # --------------------------------------------------------------------- ABC contract

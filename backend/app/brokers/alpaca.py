@@ -95,6 +95,9 @@ class AlpacaAdapter(BrokerAdapter):
             supports_orders=True,
             supports_place_order=False,  # MVP read-only
             supports_oauth=True,
+            supports_realtime_streaming=False,
+            supports_paper_trading=True,
+            requires_daily_reauth=False,
         )
 
     # ------------------------------------------------------------------ helpers

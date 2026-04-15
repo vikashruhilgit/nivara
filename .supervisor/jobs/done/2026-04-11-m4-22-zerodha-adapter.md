@@ -98,3 +98,17 @@ Subtask 4 ──→ Subtask 6
 ```
 /supervisor job: .supervisor/jobs/pending/2026-04-11-m4-22-zerodha-adapter.md
 ```
+
+## Outcome
+- **status:** completed
+- **branch:** feat/m4-22-zerodha-adapter
+- **PR:** https://github.com/vikashruhilgit/nivara/pull/22
+- **subtask commits:** b401ffa (S1), 316322c (S2), 3f02841 (S3), dfad067 (S4), 14ac766 (S5), 2af2445 (S6)
+- **heal_loop_ran:** true
+- **heal_decision:** PASS
+- **heal_iterations:** 1 (review: NEEDS_HUMAN → fix 77ef678 → review: PASS)
+- **heal_remaining_issues:** 1 LOW nit (sync test with asyncio pytestmark warning)
+- **deferred follow-ups:**
+  - `POST /api/brokers/zerodha/session/exchange` endpoint (mobile OAuth callback exchange)
+  - `resolve_canonical` / `SymbolMappingService` consolidation — `_build_adapter` does not pass symbol_mapper; Zerodha production uses MIC-default fallback
+- **tests:** 88 passed + 1 expected xfail; ruff/mypy --strict/tsc all clean
