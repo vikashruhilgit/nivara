@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable
-from datetime import UTC, date, datetime, timedelta
+from datetime import date, timedelta
 from decimal import Decimal
 from typing import Any
 from uuid import UUID
@@ -263,12 +263,23 @@ class RiskGuardian:
                     "limit": 2,
                     "sort_order": "desc",
                 }
+                resp = None
                 try:
                     resp = await client.get(FRED_BASE_URL, params=params)
                     resp.raise_for_status()
                 except httpx.HTTPError as exc:
+                    status = (
+                        resp.status_code
+                        if resp is not None and hasattr(resp, "status_code")
+                        else None
+                    )
+                    # Never pass ``exc`` or the request URL to the log — the
+                    # FRED api_key rides in the query string.
                     logger.warning(
-                        "risk_guardian.macro: FRED fetch failed for %s: %s", series_id, exc
+                        "risk_guardian.macro: FRED fetch failed for %s (%s, status=%s)",
+                        series_id,
+                        exc.__class__.__name__,
+                        status,
                     )
                     continue
 
@@ -370,7 +381,6 @@ class RiskGuardian:
             for notification in notifications:
                 try:
                     await dispatcher.dispatch(notification)
-                    notification.sent_at = datetime.now(tz=UTC)
                 except Exception:  # noqa: BLE001 — best-effort fan-out
                     logger.exception(
                         "risk_guardian.dispatch_failed",
