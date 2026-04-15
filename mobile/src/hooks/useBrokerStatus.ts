@@ -32,6 +32,36 @@ const BROKER_LABELS: Record<BrokerName, string> = {
   zerodha: 'Zerodha',
 };
 
+/**
+ * Backend connection row (shape expected once
+ * GET /api/auth/broker/connections lands). `AUTH_EXPIRED` is emitted when the
+ * broker access_token has expired and the user must re-run the OAuth flow
+ * (e.g. Kite Connect tokens expire daily at 06:00 IST).
+ */
+export type BackendBrokerState = 'CONNECTED' | 'DISCONNECTED' | 'AUTH_EXPIRED';
+
+export interface BackendBrokerConnection {
+  broker: BrokerName;
+  state: BackendBrokerState;
+}
+
+export function mapBackendToBrokerStatus(
+  rows: readonly BackendBrokerConnection[],
+): BrokerStatus[] {
+  const byBroker = new Map<BrokerName, BackendBrokerState>();
+  for (const r of rows) byBroker.set(r.broker, r.state);
+  return (['alpaca', 'zerodha'] as const).map((broker): BrokerStatus => {
+    const state = byBroker.get(broker) ?? 'DISCONNECTED';
+    if (state === 'CONNECTED') {
+      return { broker, status: 'connected', label: BROKER_LABELS[broker], action: 'synced' };
+    }
+    if (state === 'AUTH_EXPIRED') {
+      return { broker, status: 'expired', label: BROKER_LABELS[broker], action: 'relogin' };
+    }
+    return { broker, status: 'disconnected', label: BROKER_LABELS[broker], action: 'connect' };
+  });
+}
+
 function stubStatuses(): BrokerStatus[] {
   // TODO: replace with real backend call once
   // GET /api/auth/broker/connections is implemented.
