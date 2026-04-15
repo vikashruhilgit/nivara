@@ -1,0 +1,12 @@
+## WORKER_SUMMARY
+- subtask_id: M4-21-subtask-4
+- status: completed
+- files_modified: [mobile/app/(tabs)/insights.tsx]
+- files_created: [mobile/src/hooks/useRecommendations.ts, mobile/src/components/InsightCard.tsx, mobile/src/components/InsightFeed.tsx]
+- lines_added: 293
+- lines_removed: 34
+- tests_run: none
+- tests_passed: n/a
+- tests_failed: n/a
+- error: none
+- notes: Insights screen now renders InsightFeed (TanStack Query gated on auth, 60s staleTime) with color-coded action badges, confidence %, explainer provider badge, relative time, pull-to-refresh, and loading/empty/error states. tsc not run — TypeScript not installed in sandbox mobile/node_modules.

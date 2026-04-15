@@ -1,0 +1,12 @@
+## WORKER_SUMMARY
+- subtask_id: M4-21-subtask-3
+- status: completed
+- files_modified: [mobile/app/(tabs)/portfolio.tsx]
+- files_created: [mobile/src/components/AIRatingBadge.tsx, mobile/src/components/HoldingRow.tsx, mobile/src/components/HoldingsList.tsx]
+- lines_added: 226
+- lines_removed: 34
+- tests_run: none
+- tests_passed: n/a
+- tests_failed: n/a
+- error: none
+- notes: Added AIRatingBadge, HoldingRow (with cross-currency P&L), HoldingsList + makeRenderHoldingRow; portfolio.tsx now uses makeRenderHoldingRow. useRecommendations hook not yet created (Subtask 4) so lookup is empty with TODO. tsc skipped: node_modules absent; manual type review passed.
