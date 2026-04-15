@@ -96,3 +96,12 @@ Subtask 5 (Broker badges) ──────→ Subtask 6 (Settings — reuses b
 ```
 /supervisor job: .supervisor/jobs/pending/2026-04-11-m4-21-mobile-dashboard.md
 ```
+
+## Outcome
+- **heal_loop_ran:** true
+- **heal_decision:** PASS
+- **heal_iterations:** 1
+- **heal_remaining_issues:** 0
+- **PR:** https://github.com/vikashruhilgit/nivara/pull/21
+- **Commit:** e7ed775 (feat/m4-21-mobile-dashboard)
+- **Completed:** 2026-04-15
