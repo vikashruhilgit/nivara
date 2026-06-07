@@ -1,6 +1,10 @@
-import { StyleSheet, Text, View } from 'react-native';
+import { useMemo } from 'react';
+import { StyleSheet, View } from 'react-native';
 
 import { Recommendation, RecommendationAction } from '../hooks/useRecommendations';
+import { useTheme } from '../theme';
+import type { Theme } from '../theme';
+import { Surface, Text } from '../ui';
 import { FreshnessBadge } from './FreshnessBadge';
 import { StaleDataMessage } from './StaleDataMessage';
 
@@ -19,14 +23,20 @@ function actionLabel(action: RecommendationAction): string {
   }
 }
 
-function actionColors(action: RecommendationAction): { bg: string; fg: string } {
+/**
+ * Semantic mapping for a recommendation action, resolved against the theme:
+ *   buy / strong_buy   → positive (positiveBg / positive)
+ *   sell / strong_sell → negative (negativeBg / negative)
+ *   hold / neutral     → neutral  (neutralBg / neutral)
+ */
+function actionColors(theme: Theme, action: RecommendationAction): { bg: string; fg: string } {
   if (action === 'buy' || action === 'strong_buy') {
-    return { bg: '#dafbe1', fg: '#1a7f37' };
+    return { bg: theme.colors.positiveBg, fg: theme.colors.positive };
   }
   if (action === 'sell' || action === 'strong_sell') {
-    return { bg: '#ffebe9', fg: '#cf222e' };
+    return { bg: theme.colors.negativeBg, fg: theme.colors.negative };
   }
-  return { bg: '#eaeef2', fg: '#57606a' };
+  return { bg: theme.colors.neutralBg, fg: theme.colors.neutral };
 }
 
 function explainerLabel(explainer: string): string {
@@ -55,40 +65,89 @@ function timeAgo(iso: string): string {
   return `${yr}y ago`;
 }
 
+function makeStyles(theme: Theme) {
+  return StyleSheet.create({
+    card: {
+      padding: theme.spacing(4),
+      gap: theme.spacing(2),
+    },
+    headerRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+    },
+    headerRight: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: theme.spacing(1.5),
+    },
+    badge: {
+      paddingHorizontal: theme.spacing(2.5),
+      paddingVertical: theme.spacing(1),
+      borderRadius: theme.radii.pill,
+    },
+    metaRow: { flexDirection: 'row', alignItems: 'center', gap: theme.spacing(2) },
+    rationale: { marginTop: theme.spacing(0.5) },
+    footerRow: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      gap: theme.spacing(1.5),
+      marginTop: theme.spacing(0.5),
+    },
+    providerBadge: {
+      paddingHorizontal: theme.spacing(2),
+      paddingVertical: theme.spacing(0.75),
+      borderRadius: theme.radii.pill,
+      backgroundColor: theme.colors.surfaceAlt,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: theme.colors.border,
+    },
+    staleBadge: {
+      backgroundColor: theme.colors.warningBg,
+      borderColor: theme.colors.warningBorder,
+    },
+  });
+}
+
 export interface InsightCardProps {
   rec: Recommendation;
   staleness?: 'fresh' | 'aging' | 'stale' | 'suppressed';
 }
 
 export function InsightCard({ rec, staleness }: InsightCardProps): React.ReactElement {
+  const theme = useTheme();
+  const styles = useMemo(() => makeStyles(theme), [theme]);
+
   const symbol = rec.symbol ?? rec.instrument_id ?? 'Unknown';
   const action = rec.action ?? null;
-  const colors = action ? actionColors(action) : null;
+  const colors = action ? actionColors(theme, action) : null;
   const effectiveStaleness = staleness ?? rec.staleness;
 
   if (effectiveStaleness === 'suppressed') {
     return (
-      <View style={styles.card}>
+      <Surface context="list" style={styles.card}>
         <View style={styles.headerRow}>
-          <Text style={styles.symbol}>{symbol}</Text>
+          <Text variant="title">{symbol}</Text>
           <FreshnessBadge level="suppressed" />
         </View>
         <StaleDataMessage level="suppressed" />
-      </View>
+      </Surface>
     );
   }
 
   return (
-    <View style={styles.card}>
+    <Surface context="list" style={styles.card}>
       <View style={styles.headerRow}>
-        <Text style={styles.symbol}>{symbol}</Text>
+        <Text variant="title">{symbol}</Text>
         <View style={styles.headerRight}>
           {effectiveStaleness && effectiveStaleness !== 'fresh' ? (
             <FreshnessBadge level={effectiveStaleness} />
           ) : null}
           {action && colors ? (
             <View style={[styles.badge, { backgroundColor: colors.bg }]}>
-              <Text style={[styles.badgeText, { color: colors.fg }]}>{actionLabel(action)}</Text>
+              <Text variant="caption" weight="700" style={{ color: colors.fg, letterSpacing: 0.3 }}>
+                {actionLabel(action)}
+              </Text>
             </View>
           ) : null}
         </View>
@@ -96,13 +155,19 @@ export function InsightCard({ rec, staleness }: InsightCardProps): React.ReactEl
 
       <View style={styles.metaRow}>
         {typeof rec.confidence === 'number' ? (
-          <Text style={styles.meta}>Confidence {rec.confidence.toFixed(0)}%</Text>
+          <Text variant="label" color="secondary">
+            Confidence {rec.confidence.toFixed(0)}%
+          </Text>
         ) : null}
-        {rec.computed_at ? <Text style={styles.metaDot}>{timeAgo(rec.computed_at)}</Text> : null}
+        {rec.computed_at ? (
+          <Text variant="caption" color="tertiary">
+            {timeAgo(rec.computed_at)}
+          </Text>
+        ) : null}
       </View>
 
       {rec.rationale ? (
-        <Text style={styles.rationale} numberOfLines={3}>
+        <Text variant="body" color="primary" numberOfLines={3} style={styles.rationale}>
           {rec.rationale}
         </Text>
       ) : null}
@@ -110,65 +175,26 @@ export function InsightCard({ rec, staleness }: InsightCardProps): React.ReactEl
       <View style={styles.footerRow}>
         {rec.explainer_used ? (
           <View style={styles.providerBadge}>
-            <Text style={styles.providerText}>{explainerLabel(rec.explainer_used)}</Text>
+            <Text variant="caption" color="secondary" weight="600">
+              {explainerLabel(rec.explainer_used)}
+            </Text>
           </View>
         ) : null}
         {rec.ai_blended ? (
           <View style={styles.providerBadge}>
-            <Text style={styles.providerText}>AI blended</Text>
+            <Text variant="caption" color="secondary" weight="600">
+              AI blended
+            </Text>
           </View>
         ) : null}
         {rec.status === 'stale' ? (
           <View style={[styles.providerBadge, styles.staleBadge]}>
-            <Text style={[styles.providerText, styles.staleText]}>stale</Text>
+            <Text variant="caption" color="warning" weight="600">
+              stale
+            </Text>
           </View>
         ) : null}
       </View>
-    </View>
+    </Surface>
   );
 }
-
-const styles = StyleSheet.create({
-  card: {
-    backgroundColor: '#fff',
-    borderRadius: 12,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: '#d0d7de',
-    padding: 16,
-    marginBottom: 12,
-    gap: 8,
-  },
-  headerRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  headerRight: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  symbol: { fontSize: 18, fontWeight: '700' },
-  badge: {
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 999,
-  },
-  badgeText: { fontSize: 11, fontWeight: '700', letterSpacing: 0.3 },
-  metaRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  meta: { fontSize: 13, color: '#57606a', fontWeight: '600' },
-  metaDot: { fontSize: 13, color: '#57606a' },
-  rationale: { fontSize: 14, color: '#1f2328', lineHeight: 20 },
-  footerRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 2 },
-  providerBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 999,
-    backgroundColor: '#f6f8fa',
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: '#d0d7de',
-  },
-  providerText: { fontSize: 11, color: '#57606a', fontWeight: '600' },
-  staleBadge: { backgroundColor: '#fff8c5', borderColor: '#d4a72c' },
-  staleText: { color: '#9a6700' },
-});

@@ -3,31 +3,44 @@
  *
  * Pressing a pressable badge (Connect / Re-login) launches the existing
  * BrokerConnect OAuth flow for that broker.
+ *
+ * Token-driven styling (no raw hex).
  */
 
 import { useState } from 'react';
-import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, View } from 'react-native';
+import type { ViewStyle } from 'react-native';
 
 import { useBrokerStatus, type BrokerStatus } from '../hooks/useBrokerStatus';
+import { useTheme } from '../theme';
+import { Text } from '../ui';
 import { BrokerConnect } from './BrokerConnect';
 import { BrokerStatusBadge } from './BrokerStatusBadge';
 
 export function BrokerConnectionsManager(): React.ReactElement {
+  const theme = useTheme();
   const query = useBrokerStatus();
   const [connecting, setConnecting] = useState<BrokerStatus['broker'] | null>(null);
 
+  const centered: ViewStyle = {
+    alignItems: 'center',
+    paddingVertical: theme.spacing(4),
+  };
+
   if (query.isPending) {
     return (
-      <View style={styles.centered}>
-        <ActivityIndicator />
+      <View style={centered}>
+        <ActivityIndicator color={theme.colors.accent} />
       </View>
     );
   }
 
   if (query.error) {
     return (
-      <View style={styles.centered}>
-        <Text style={styles.sub}>Unable to load broker status.</Text>
+      <View style={centered}>
+        <Text variant="caption" color="secondary">
+          Unable to load broker status.
+        </Text>
       </View>
     );
   }
@@ -35,15 +48,12 @@ export function BrokerConnectionsManager(): React.ReactElement {
   const statuses = query.data ?? [];
 
   return (
-    <View style={styles.list}>
+    <View style={{ gap: theme.spacing(3) }}>
       {statuses.map((s) => (
-        <View key={s.broker} style={styles.item}>
-          <BrokerStatusBadge
-            status={s}
-            onPress={() => setConnecting(s.broker)}
-          />
+        <View key={s.broker} style={{ gap: theme.spacing(2) }}>
+          <BrokerStatusBadge status={s} onPress={() => setConnecting(s.broker)} />
           {connecting === s.broker ? (
-            <View style={styles.connectHost}>
+            <View style={{ paddingHorizontal: theme.spacing(1) }}>
               <BrokerConnect
                 broker={s.broker}
                 onConnected={() => {
@@ -58,23 +68,3 @@ export function BrokerConnectionsManager(): React.ReactElement {
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  list: {
-    gap: 12,
-  },
-  item: {
-    gap: 8,
-  },
-  connectHost: {
-    paddingHorizontal: 4,
-  },
-  centered: {
-    alignItems: 'center',
-    paddingVertical: 16,
-  },
-  sub: {
-    fontSize: 13,
-    color: '#57606a',
-  },
-});

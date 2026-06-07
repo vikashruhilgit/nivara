@@ -1,14 +1,9 @@
 import { useMemo } from 'react';
-import {
-  ActivityIndicator,
-  FlatList,
-  RefreshControl,
-  StyleSheet,
-  Text,
-  View,
-} from 'react-native';
+import { ActivityIndicator, FlatList, RefreshControl, View } from 'react-native';
 
 import { Recommendation, useRecommendations } from '../hooks/useRecommendations';
+import { useTheme } from '../theme';
+import { Text } from '../ui';
 import { InsightCard } from './InsightCard';
 
 function keyFor(rec: Recommendation, index: number): string {
@@ -17,6 +12,7 @@ function keyFor(rec: Recommendation, index: number): string {
 }
 
 export function InsightFeed(): React.ReactElement {
+  const theme = useTheme();
   const query = useRecommendations();
 
   const sorted = useMemo<Recommendation[]>(() => {
@@ -30,19 +26,19 @@ export function InsightFeed(): React.ReactElement {
 
   if (query.isPending) {
     return (
-      <View style={styles.centered}>
-        <ActivityIndicator size="large" />
+      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: theme.spacing(8) }}>
+        <ActivityIndicator size="large" color={theme.colors.accent} />
       </View>
     );
   }
 
   const empty = (
-    <View style={styles.centered}>
-      {query.error ? (
-        <Text style={styles.sub}>Recommendations unavailable. Pull down to retry.</Text>
-      ) : (
-        <Text style={styles.sub}>No recommendations yet.</Text>
-      )}
+    <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: theme.spacing(8) }}>
+      <Text variant="body" color="secondary" style={{ textAlign: 'center' }}>
+        {query.error
+          ? 'Recommendations unavailable. Pull down to retry.'
+          : 'No recommendations yet.'}
+      </Text>
     </View>
   );
 
@@ -52,21 +48,20 @@ export function InsightFeed(): React.ReactElement {
       keyExtractor={keyFor}
       renderItem={({ item }) => <InsightCard rec={item} />}
       ListEmptyComponent={empty}
+      ItemSeparatorComponent={() => (
+        <View style={{ height: theme.spacing(3) }} />
+      )}
       refreshControl={
         <RefreshControl
           refreshing={query.isRefetching}
           onRefresh={() => {
             void query.refetch();
           }}
+          tintColor={theme.colors.accent}
+          colors={[theme.colors.accent]}
         />
       }
-      contentContainerStyle={styles.list}
+      contentContainerStyle={{ padding: theme.spacing(4), flexGrow: 1 }}
     />
   );
 }
-
-const styles = StyleSheet.create({
-  list: { padding: 16, flexGrow: 1 },
-  centered: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 32 },
-  sub: { color: '#57606a', fontSize: 14, textAlign: 'center' },
-});

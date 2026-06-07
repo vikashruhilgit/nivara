@@ -32,17 +32,12 @@
 import * as AuthSession from 'expo-auth-session';
 import * as WebBrowser from 'expo-web-browser';
 import { useState } from 'react';
-import {
-  ActivityIndicator,
-  Alert,
-  Pressable,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
-} from 'react-native';
+import { Alert, StyleSheet, TextInput, View } from 'react-native';
+import type { TextStyle, ViewStyle } from 'react-native';
 
 import { apiPost, getApiErrorMessage } from '../api/client';
+import { useTheme } from '../theme';
+import { Button, Text } from '../ui';
 
 type BrokerName = 'alpaca' | 'zerodha';
 
@@ -84,9 +79,24 @@ export function BrokerConnect({
   broker?: BrokerName;
   onConnected?: () => void;
 }): React.ReactElement {
+  const theme = useTheme();
   const [busy, setBusy] = useState(false);
   const [apiKeyId, setApiKeyId] = useState('');
   const [apiSecret, setApiSecret] = useState('');
+
+  const inputStyle: TextStyle = {
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: theme.colors.border,
+    borderRadius: theme.radii.md,
+    paddingVertical: theme.spacing(3),
+    paddingHorizontal: theme.spacing(3),
+    marginVertical: theme.spacing(1),
+    fontSize: 16,
+    color: theme.colors.textPrimary,
+    backgroundColor: theme.colors.surfaceAlt,
+  };
+
+  const containerStyle: ViewStyle = { marginVertical: theme.spacing(2) };
 
   async function submitAlpacaCredentials(): Promise<void> {
     setBusy(true);
@@ -181,22 +191,26 @@ export function BrokerConnect({
     const canSubmit = apiKeyId.trim().length > 0 && apiSecret.trim().length > 0 && !busy;
 
     return (
-      <View style={styles.container}>
-        <Text style={styles.label}>API Key ID</Text>
+      <View style={containerStyle}>
+        <Text variant="label" style={styles.fieldLabel}>
+          API Key ID
+        </Text>
         <TextInput
-          style={styles.input}
+          style={inputStyle}
           value={apiKeyId}
           onChangeText={setApiKeyId}
           editable={!busy}
           autoCapitalize="none"
           autoCorrect={false}
           placeholder="PK..."
-          placeholderTextColor="#8b949e"
+          placeholderTextColor={theme.colors.textTertiary}
         />
 
-        <Text style={styles.label}>API Secret</Text>
+        <Text variant="label" style={styles.fieldLabel}>
+          API Secret
+        </Text>
         <TextInput
-          style={styles.input}
+          style={inputStyle}
           value={apiSecret}
           onChangeText={setApiSecret}
           editable={!busy}
@@ -204,85 +218,41 @@ export function BrokerConnect({
           autoCapitalize="none"
           autoCorrect={false}
           placeholder="••••••••"
-          placeholderTextColor="#8b949e"
+          placeholderTextColor={theme.colors.textTertiary}
         />
 
-        <Pressable
-          accessibilityRole="button"
-          onPress={submitAlpacaCredentials}
+        <Button
+          title="Connect Alpaca"
+          onPress={() => void submitAlpacaCredentials()}
           disabled={!canSubmit}
-          style={({ pressed }) => [
-            styles.btn,
-            (pressed || busy) && styles.btnPressed,
-            !canSubmit && styles.btnDisabled,
-          ]}
-        >
-          {busy ? (
-            <ActivityIndicator color="#fff" />
-          ) : (
-            <Text style={styles.btnText}>Connect Alpaca</Text>
-          )}
-        </Pressable>
+          loading={busy}
+          style={styles.submitBtn}
+          accessibilityLabel="Connect Alpaca"
+        />
       </View>
     );
   }
 
   return (
-    <View style={styles.container}>
-      <Pressable
-        accessibilityRole="button"
-        onPress={handleZerodhaConnect}
+    <View style={containerStyle}>
+      <Button
+        title="Connect Zerodha"
+        onPress={() => void handleZerodhaConnect()}
         disabled={busy}
-        style={({ pressed }) => [styles.btn, (pressed || busy) && styles.btnPressed]}
-      >
-        {busy ? (
-          <ActivityIndicator color="#fff" />
-        ) : (
-          <Text style={styles.btnText}>Connect Zerodha</Text>
-        )}
-      </Pressable>
+        loading={busy}
+        style={styles.submitBtn}
+        accessibilityLabel="Connect Zerodha"
+      />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    marginVertical: 8,
-  },
-  label: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#c9d1d9',
+  fieldLabel: {
     marginBottom: 4,
     marginTop: 8,
   },
-  input: {
-    borderWidth: 1,
-    borderColor: '#30363d',
-    borderRadius: 8,
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    marginVertical: 4,
-    fontSize: 16,
-    color: '#c9d1d9',
-  },
-  btn: {
-    backgroundColor: '#1f6feb',
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    borderRadius: 8,
-    alignItems: 'center',
+  submitBtn: {
     marginTop: 12,
-  },
-  btnPressed: {
-    opacity: 0.7,
-  },
-  btnDisabled: {
-    opacity: 0.5,
-  },
-  btnText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '600',
   },
 });

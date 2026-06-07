@@ -5,7 +5,7 @@
  * Each row shows name, score (0-100), weight, and detail key/value pairs.
  */
 
-import React from 'react';
+import React, { useMemo } from 'react';
 import {
   ActivityIndicator,
   Modal,
@@ -17,10 +17,9 @@ import {
 } from 'react-native';
 
 import { RiskComponent, useRiskMeterDrilldown } from '../hooks/useRiskMeter';
+import type { Theme } from '../theme';
+import { useTheme } from '../theme';
 import { zoneColor } from './RiskMeterGauge';
-
-const COLOR_MUTED = '#57606a';
-const COLOR_BORDER = '#d0d7de';
 
 export interface RiskDrillDownProps {
   visible: boolean;
@@ -47,13 +46,15 @@ function ComponentRow({
 }: {
   component: RiskComponent;
 }): React.ReactElement {
+  const theme = useTheme();
+  const styles = useMemo(() => makeStyles(theme), [theme]);
   const score = Math.round(component.score);
-  const color = zoneColor(score);
+  const color = zoneColor(theme, score);
   const detailEntries = component.detail ? Object.entries(component.detail) : [];
   return (
     <View style={styles.row}>
       <View style={styles.rowHeader}>
-        <View style={{ flex: 1 }}>
+        <View style={styles.flex1}>
           <Text style={styles.rowName}>{component.name}</Text>
           <Text style={styles.rowSub}>
             Weight {(component.weight * 100).toFixed(0)}%
@@ -81,6 +82,8 @@ export function RiskDrillDown({
   visible,
   onClose,
 }: RiskDrillDownProps): React.ReactElement {
+  const theme = useTheme();
+  const styles = useMemo(() => makeStyles(theme), [theme]);
   const query = useRiskMeterDrilldown();
 
   return (
@@ -105,7 +108,7 @@ export function RiskDrillDown({
 
         {query.isPending ? (
           <View style={styles.centered}>
-            <ActivityIndicator size="large" />
+            <ActivityIndicator size="large" color={theme.colors.accent} />
           </View>
         ) : query.error || !query.data ? (
           <View style={styles.centered}>
@@ -120,7 +123,7 @@ export function RiskDrillDown({
               <Text
                 style={[
                   styles.overallScore,
-                  { color: zoneColor(query.data.overall_score) },
+                  { color: zoneColor(theme, query.data.overall_score) },
                 ]}
               >
                 {Math.round(query.data.overall_score)}
@@ -142,63 +145,71 @@ export function RiskDrillDown({
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#ffffff' },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: 16,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: COLOR_BORDER,
-  },
-  title: { flex: 1, fontSize: 18, fontWeight: '700' },
-  closeBtn: { paddingHorizontal: 8, paddingVertical: 4 },
-  closeText: { color: '#0969da', fontSize: 16 },
-  centered: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 32,
-  },
-  content: { padding: 16, gap: 12 },
-  summaryCard: {
-    backgroundColor: '#f6f8fa',
-    borderRadius: 12,
-    padding: 16,
-    alignItems: 'center',
-    marginBottom: 8,
-  },
-  overallScore: { fontSize: 36, fontWeight: '700', marginTop: 4 },
-  stale: { marginTop: 6, fontSize: 12, color: '#bf8700' },
-  row: {
-    backgroundColor: '#ffffff',
-    borderRadius: 12,
-    padding: 16,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: COLOR_BORDER,
-  },
-  rowHeader: { flexDirection: 'row', alignItems: 'center' },
-  rowName: { fontSize: 16, fontWeight: '600' },
-  rowSub: { fontSize: 12, color: COLOR_MUTED, marginTop: 2 },
-  scoreBadge: {
-    minWidth: 44,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 8,
-    alignItems: 'center',
-  },
-  scoreBadgeText: { color: '#ffffff', fontSize: 16, fontWeight: '700' },
-  detailBlock: {
-    marginTop: 12,
-    paddingTop: 12,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: COLOR_BORDER,
-    gap: 4,
-  },
-  detailRow: { flexDirection: 'row', justifyContent: 'space-between' },
-  detailKey: { fontSize: 13, color: COLOR_MUTED },
-  detailValue: { fontSize: 13, color: '#24292f' },
-  sub: { fontSize: 13, color: COLOR_MUTED },
-});
+function makeStyles(theme: Theme) {
+  return StyleSheet.create({
+    container: { flex: 1, backgroundColor: theme.colors.background },
+    flex1: { flex: 1 },
+    header: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      padding: theme.spacing(4),
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: theme.colors.border,
+    },
+    title: {
+      flex: 1,
+      fontSize: theme.typography.title.fontSize,
+      fontWeight: '700',
+      color: theme.colors.textPrimary,
+    },
+    closeBtn: { paddingHorizontal: theme.spacing(2), paddingVertical: theme.spacing(1) },
+    closeText: { color: theme.colors.accent, fontSize: 16 },
+    centered: {
+      flex: 1,
+      alignItems: 'center',
+      justifyContent: 'center',
+      padding: theme.spacing(8),
+    },
+    content: { padding: theme.spacing(4), gap: theme.spacing(3) },
+    summaryCard: {
+      backgroundColor: theme.colors.surfaceAlt,
+      borderRadius: theme.radii.lg,
+      padding: theme.spacing(4),
+      alignItems: 'center',
+      marginBottom: theme.spacing(2),
+    },
+    overallScore: { fontSize: 36, fontWeight: '700', marginTop: theme.spacing(1) },
+    stale: { marginTop: 6, fontSize: 12, color: theme.colors.warning },
+    row: {
+      backgroundColor: theme.colors.surface,
+      borderRadius: theme.radii.lg,
+      padding: theme.spacing(4),
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: theme.colors.border,
+    },
+    rowHeader: { flexDirection: 'row', alignItems: 'center' },
+    rowName: { fontSize: 16, fontWeight: '600', color: theme.colors.textPrimary },
+    rowSub: { fontSize: 12, color: theme.colors.textSecondary, marginTop: 2 },
+    scoreBadge: {
+      minWidth: 44,
+      paddingHorizontal: theme.spacing(2.5),
+      paddingVertical: theme.spacing(1.5),
+      borderRadius: theme.radii.sm,
+      alignItems: 'center',
+    },
+    scoreBadgeText: { color: theme.colors.textOnAccent, fontSize: 16, fontWeight: '700' },
+    detailBlock: {
+      marginTop: theme.spacing(3),
+      paddingTop: theme.spacing(3),
+      borderTopWidth: StyleSheet.hairlineWidth,
+      borderTopColor: theme.colors.border,
+      gap: 4,
+    },
+    detailRow: { flexDirection: 'row', justifyContent: 'space-between' },
+    detailKey: { fontSize: 13, color: theme.colors.textSecondary },
+    detailValue: { fontSize: 13, color: theme.colors.textPrimary },
+    sub: { fontSize: 13, color: theme.colors.textSecondary },
+  });
+}
 
 export default RiskDrillDown;

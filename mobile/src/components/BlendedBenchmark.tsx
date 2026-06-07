@@ -9,8 +9,12 @@
  * `useBlendedBenchmark`).
  */
 
-import React from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import React, { useMemo } from 'react';
+import { StyleSheet, View } from 'react-native';
+
+import type { Theme } from '../theme';
+import { useTheme } from '../theme';
+import { Text } from '../ui';
 
 export interface BlendedBenchmarkWeight {
   venue: string;
@@ -57,50 +61,68 @@ export function BlendedBenchmark({
   periodDays,
   weights,
 }: BlendedBenchmarkProps): React.ReactElement {
+  const theme = useTheme();
+  const styles = useMemo(() => makeStyles(theme), [theme]);
   const diff = portfolioReturnPct - blendedReturnPct;
   const outperforming = diff >= 0;
   const formula = buildFormula(weights);
 
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>Blended Benchmark</Text>
-      <Text style={styles.period}>
+      <Text variant="label" weight="600">
+        Blended Benchmark
+      </Text>
+      <Text variant="caption" color="secondary" style={styles.period}>
         {periodDays}d · base {baseCurrency}
       </Text>
 
-      <Text style={styles.formula} numberOfLines={2}>
+      <Text
+        variant="caption"
+        color="primary"
+        numberOfLines={2}
+        style={styles.formula}
+      >
         {formula}
       </Text>
 
       <View style={styles.row}>
-        <Text style={styles.label}>Portfolio</Text>
+        <Text variant="body" color="primary">
+          Portfolio
+        </Text>
         <Text
-          style={[
-            styles.value,
-            portfolioReturnPct >= 0 ? styles.gain : styles.loss,
-          ]}
+          variant="body"
+          weight="600"
+          color={portfolioReturnPct >= 0 ? 'positive' : 'negative'}
+          style={styles.value}
         >
           {formatPct(portfolioReturnPct)}
         </Text>
       </View>
 
       <View style={styles.row}>
-        <Text style={styles.label}>Blended</Text>
+        <Text variant="body" color="primary">
+          Blended
+        </Text>
         <Text
-          style={[
-            styles.value,
-            blendedReturnPct >= 0 ? styles.gain : styles.loss,
-          ]}
+          variant="body"
+          weight="600"
+          color={blendedReturnPct >= 0 ? 'positive' : 'negative'}
+          style={styles.value}
         >
           {formatPct(blendedReturnPct)}
         </Text>
       </View>
 
       <View style={[styles.row, styles.diffRow]}>
-        <Text style={styles.label}>
+        <Text variant="body" color="primary">
           {outperforming ? 'Outperforming' : 'Underperforming'}
         </Text>
-        <Text style={[styles.value, outperforming ? styles.gain : styles.loss]}>
+        <Text
+          variant="body"
+          weight="600"
+          color={outperforming ? 'positive' : 'negative'}
+          style={styles.value}
+        >
           {formatPct(diff)}
         </Text>
       </View>
@@ -108,36 +130,34 @@ export function BlendedBenchmark({
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    padding: 12,
-    borderRadius: 8,
-    backgroundColor: '#f6f8fa',
-    marginVertical: 6,
-  },
-  title: { fontSize: 15, fontWeight: '600', color: '#1f2328' },
-  period: { fontSize: 12, color: '#656d76', marginTop: 2 },
-  formula: {
-    fontSize: 13,
-    color: '#1f2328',
-    marginTop: 8,
-    marginBottom: 8,
-    fontStyle: 'italic',
-  },
-  row: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: 4,
-  },
-  diffRow: {
-    marginTop: 6,
-    paddingTop: 6,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: '#d0d7de',
-  },
-  label: { fontSize: 14, color: '#1f2328' },
-  value: { fontSize: 14, fontVariant: ['tabular-nums'] },
-  gain: { color: '#1a7f37' },
-  loss: { color: '#cf222e' },
-});
+function makeStyles(theme: Theme) {
+  return StyleSheet.create({
+    container: {
+      padding: theme.spacing(3),
+      borderRadius: theme.radii.md,
+      backgroundColor: theme.colors.surfaceAlt,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: theme.colors.border,
+      marginVertical: theme.spacing(1.5),
+    },
+    period: { marginTop: 2 },
+    formula: {
+      marginTop: theme.spacing(2),
+      marginBottom: theme.spacing(2),
+      fontStyle: 'italic',
+    },
+    row: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      paddingVertical: theme.spacing(1),
+    },
+    diffRow: {
+      marginTop: theme.spacing(1.5),
+      paddingTop: theme.spacing(1.5),
+      borderTopWidth: StyleSheet.hairlineWidth,
+      borderTopColor: theme.colors.border,
+    },
+    value: { fontVariant: ['tabular-nums'] },
+  });
+}

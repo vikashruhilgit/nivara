@@ -1,5 +1,6 @@
 import React from 'react';
-import { StyleSheet, Text } from 'react-native';
+
+import { Text } from '../ui';
 
 /**
  * FX impact attribution for a cross-currency holding.
@@ -25,19 +26,12 @@ export function FxImpactNote({
 }: FxImpactNoteProps): React.ReactElement {
   return (
     <Text
-      style={styles.note}
+      variant="caption"
+      color="tertiary"
+      style={{ marginTop: 2, fontStyle: 'italic' }}
       accessibilityLabel={`FX impact: ${attribution.note_text}`}
     >
       {attribution.note_text}
     </Text>
   );
 }
-
-const styles = StyleSheet.create({
-  note: {
-    color: '#8c959f',
-    fontSize: 11,
-    marginTop: 2,
-    fontStyle: 'italic',
-  },
-});
