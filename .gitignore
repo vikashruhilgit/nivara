@@ -41,3 +41,6 @@ credentials.json
 htmlcov/
 .mypy_cache/
 .ruff_cache/
+
+# Local scratch
+temp/

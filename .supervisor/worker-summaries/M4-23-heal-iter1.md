@@ -1,0 +1,12 @@
+## WORKER_SUMMARY
+- subtask_id: M4-23-heal-iter1
+- status: completed
+- files_modified: [backend/app/intelligence/synthesizer.py, backend/tests/test_synthesizer.py, mobile/src/hooks/usePortfolio.ts, mobile/src/components/HoldingRow.tsx]
+- files_created: [backend/tests/test_portfolio_fx_attribution_api.py]
+- lines_added: 309
+- lines_removed: 22
+- tests_run: 59
+- tests_passed: 59
+- tests_failed: 0
+- error: none
+- notes: Fixed all 5 issues — mobile Position envelope+field alignment, no_engine_data staleness=None, 3 staleness-band tests, and fx_attribution helper unit tests. Commit 1a466ab pushed to feat/m4-23-crossmarket-fx-stale. Mobile tsc clean; ruff/mypy clean on touched files.

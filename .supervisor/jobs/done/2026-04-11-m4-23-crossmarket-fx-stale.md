@@ -93,3 +93,13 @@ Subtask 3 (Backend FX attr.)  ──→ Subtask 6 (Mobile FX notes)
 ```
 /supervisor job: .supervisor/jobs/pending/2026-04-11-m4-23-crossmarket-fx-stale.md
 ```
+
+## Outcome
+- heal_loop_ran: true
+- heal_decision: PASS
+- heal_iterations: 1
+- heal_remaining_issues: 0
+- pr: https://github.com/vikashruhilgit/nivara/pull/23
+- feature_branch: feat/m4-23-crossmarket-fx-stale
+- subtasks_completed: 6/6 (S1-S6)
+- tests: 59/59 backend pass; mobile tsc clean

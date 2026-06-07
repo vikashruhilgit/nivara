@@ -1,0 +1,12 @@
+## WORKER_SUMMARY
+- subtask_id: M4-22-heal-iter1
+- status: completed
+- files_modified: [backend/app/api/portfolio.py, backend/app/brokers/rate_limiter.py, backend/app/brokers/zerodha.py, backend/tests/brokers/test_zerodha_unit.py, backend/tests/test_portfolio_sync.py, mobile/src/hooks/useBrokerStatus.ts]
+- files_created: []
+- lines_added: 252
+- lines_removed: 28
+- tests_run: 82
+- tests_passed: 81
+- tests_failed: 0
+- error: none
+- notes: Wired GlobalRateLimiter into ZerodhaAdapter._call, scrubbed secrets from error messages, added Zerodha branch to portfolio _build_adapter with shared rate-limiter singleton, and replaced mobile useBrokerStatus stub with real GET /api/auth/broker/connections call. Commit 77ef678.
