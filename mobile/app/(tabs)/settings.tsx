@@ -1,3 +1,4 @@
+import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
 import { useState } from 'react';
 import { View } from 'react-native';
 
@@ -15,6 +16,7 @@ import { Button, Card, Screen, Text } from '../../src/ui';
 
 export default function SettingsScreen(): React.ReactElement {
   const theme = useTheme();
+  const tabBarHeight = useBottomTabBarHeight();
   const user = useAuthStore((s) => s.user);
   const signOut = useAuthStore((s) => s.signOut);
 
@@ -32,7 +34,14 @@ export default function SettingsScreen(): React.ReactElement {
     setPrefs((p) => ({ ...p, [key]: v }));
 
   return (
-    <Screen scroll padded contentContainerStyle={{ gap: theme.spacing(4) }}>
+    <Screen
+      scroll
+      padded
+      contentContainerStyle={{
+        gap: theme.spacing(4),
+        paddingBottom: theme.spacing(4) + tabBarHeight,
+      }}
+    >
       <Card>
         <View style={{ gap: theme.spacing(3) }}>
           <Text variant="label" color="secondary">

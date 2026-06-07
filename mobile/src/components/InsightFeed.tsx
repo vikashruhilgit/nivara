@@ -1,3 +1,4 @@
+import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
 import { useMemo } from 'react';
 import { ActivityIndicator, FlatList, RefreshControl, View } from 'react-native';
 
@@ -13,6 +14,7 @@ function keyFor(rec: Recommendation, index: number): string {
 
 export function InsightFeed(): React.ReactElement {
   const theme = useTheme();
+  const tabBarHeight = useBottomTabBarHeight();
   const query = useRecommendations();
 
   const sorted = useMemo<Recommendation[]>(() => {
@@ -61,7 +63,11 @@ export function InsightFeed(): React.ReactElement {
           colors={[theme.colors.accent]}
         />
       }
-      contentContainerStyle={{ padding: theme.spacing(4), flexGrow: 1 }}
+      contentContainerStyle={{
+        padding: theme.spacing(4),
+        paddingBottom: theme.spacing(4) + tabBarHeight,
+        flexGrow: 1,
+      }}
     />
   );
 }

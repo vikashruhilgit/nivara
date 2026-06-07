@@ -1,3 +1,4 @@
+import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
 import { useMemo } from 'react';
 import { ActivityIndicator, FlatList, RefreshControl, StyleSheet, View } from 'react-native';
 
@@ -7,10 +8,13 @@ import { PortfolioSummary } from '../../src/components/PortfolioSummary';
 import { usePortfolioSummary, usePositions } from '../../src/hooks/usePortfolio';
 import { useRecommendations } from '../../src/hooks/useRecommendations';
 import { useTheme } from '../../src/theme';
+import type { Theme } from '../../src/theme';
 import { Screen, Text } from '../../src/ui';
 
 export default function PortfolioScreen(): React.ReactElement {
   const theme = useTheme();
+  const styles = useMemo(() => makeStyles(theme), [theme]);
+  const tabBarHeight = useBottomTabBarHeight();
   const summary = usePortfolioSummary();
   const positions = usePositions();
   const recommendations = useRecommendations();
@@ -86,15 +90,22 @@ export default function PortfolioScreen(): React.ReactElement {
             colors={[theme.colors.accent]}
           />
         }
-        contentContainerStyle={styles.list}
+        contentContainerStyle={[styles.list, { paddingBottom: theme.spacing(4) + tabBarHeight }]}
       />
     </Screen>
   );
 }
 
-const styles = StyleSheet.create({
-  flatList: { backgroundColor: 'transparent' },
-  list: { padding: 16, gap: 8 },
-  centered: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 32 },
-  sep: { height: StyleSheet.hairlineWidth },
-});
+function makeStyles(theme: Theme) {
+  return StyleSheet.create({
+    flatList: { backgroundColor: 'transparent' },
+    list: { padding: theme.spacing(4), gap: theme.spacing(2) },
+    centered: {
+      flex: 1,
+      alignItems: 'center',
+      justifyContent: 'center',
+      padding: theme.spacing(8),
+    },
+    sep: { height: StyleSheet.hairlineWidth },
+  });
+}
