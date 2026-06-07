@@ -1,0 +1,46 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Cancel superseded runs on the same ref (e.g. rapid pushes to a PR branch).
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Backend (lint · types · tests)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # uv handles resolution; enable-cache keys the cache on uv.lock so heavy
+      # deps (torch, transformers, ...) only download on the first run / lock change.
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+
+      - name: Set up Python 3.12
+        run: uv python install 3.12
+
+      - name: Install dependencies (incl. dev extras)
+        run: uv sync --extra dev
+
+      # Lint + format first so style/import errors fail fast and cheap.
+      - name: Ruff lint
+        run: uv run ruff check backend
+
+      - name: Ruff format check
+        run: uv run ruff format --check backend
+
+      - name: Mypy (strict)
+        run: uv run mypy backend/app
+
+      - name: Pytest
+        run: uv run pytest

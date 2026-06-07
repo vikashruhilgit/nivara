@@ -100,12 +100,17 @@ def _load_pipeline() -> _PipelineLike:
         ) from exc
     try:
         # device=-1 forces CPU; return_all_scores is deprecated so we use top_k=None.
-        return pipeline(  # type: ignore[no-any-return]
+        # Assign to a typed local rather than `return pipeline(...)`: when
+        # transformers is installed its return type is concrete (no ignore
+        # needed); when it isn't (e.g. the pre-commit mypy env) the value is
+        # Any, and the annotation keeps mypy --strict from flagging no-any-return.
+        pipe: _PipelineLike = pipeline(
             "text-classification",
             model=FINBERT_MODEL_NAME,
             device=-1,
             top_k=None,
         )
+        return pipe
     except Exception as exc:  # noqa: BLE001
         raise FinBertUnavailable(f"FinBERT load failed: {exc}") from exc
 
