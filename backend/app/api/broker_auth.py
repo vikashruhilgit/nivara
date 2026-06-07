@@ -1,13 +1,16 @@
 """Broker OAuth endpoints.
 
-MVP exposes two routes per supported broker:
+Routes:
 
 * ``GET  /api/auth/broker/{broker}/connect`` — returns the redirect URL the
   mobile app should open in a browser / embedded webview.
-* ``POST /api/auth/broker/{broker}/callback`` — exchanges the OAuth ``code``
-  for access / refresh tokens, encrypts them via
+* ``POST /api/auth/broker/alpaca/credentials`` — Alpaca's primary connect path:
+  verifies per-user API keys against Alpaca, encrypts them via
   :mod:`backend.app.services.encryption`, and persists a
   :class:`BrokerConnection` row.
+* ``POST /api/auth/broker/{broker}/callback`` — the legacy OAuth callback;
+  Alpaca is retired here (returns 410 Gone) in favour of the credentials
+  endpoint.
 
 Zerodha returns 501 in MVP (see :mod:`backend.app.brokers.zerodha`).
 """
@@ -19,6 +22,8 @@ from typing import Literal
 from urllib.parse import urlencode
 
 from backend.app.auth.dependencies import get_current_user
+from backend.app.brokers.alpaca import AlpacaAdapter
+from backend.app.brokers.errors import BrokerAPIError, BrokerErrorCode
 from backend.app.brokers.zerodha import _last_kite_expiry_cutoff
 from backend.app.config import get_settings
 from backend.app.db import get_session
@@ -45,6 +50,11 @@ class BrokerConnectResponse(BaseModel):
 class BrokerCallbackRequest(BaseModel):
     code: str = Field(..., min_length=1, description="OAuth authorization code.")
     state: str | None = None
+
+
+class AlpacaCredentialsRequest(BaseModel):
+    api_key_id: str = Field(..., min_length=1, description="Alpaca API Key ID.")
+    api_secret: str = Field(..., min_length=1, description="Alpaca API Secret.")
 
 
 class BrokerConnectionResponse(BaseModel):
@@ -124,6 +134,80 @@ def _derive_connection_status(
     return "connected"
 
 
+# --------------------------------------------------------- alpaca credentials
+
+
+async def _verify_alpaca_account(api_key_id: str, api_secret: str) -> str:
+    """Verify Alpaca credentials by calling GET /v2/account; return the account_id.
+
+    Raises BrokerAPIError on any broker-side failure (caller maps to HTTP).
+    Never logs the key id or secret.
+    """
+    settings = get_settings()
+    adapter = AlpacaAdapter(
+        api_key=api_key_id,
+        api_secret=api_secret,
+        base_url=settings.alpaca_base_url,
+    )
+    async with adapter:
+        balance = await adapter.get_balances()
+    return balance.account_id
+
+
+@router.post(
+    "/alpaca/credentials",
+    response_model=BrokerConnectionResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def connect_alpaca_credentials(
+    payload: AlpacaCredentialsRequest,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+) -> BrokerConnectionResponse:
+    """Connect Alpaca using per-user API keys (Key ID + Secret).
+
+    Verifies the credentials against Alpaca's ``GET /v2/account`` before
+    persisting. On success, encrypts and stores them on a
+    :class:`BrokerConnection` row; on failure no row is created.
+    """
+    try:
+        account_id = await _verify_alpaca_account(payload.api_key_id, payload.api_secret)
+    except BrokerAPIError as exc:
+        if exc.code == BrokerErrorCode.AUTH_EXPIRED:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Alpaca rejected the provided credentials",
+            ) from exc
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Could not verify Alpaca credentials — try again",
+        ) from exc
+
+    # Storage shape (per-user Alpaca API keys, no migration): Key ID -> access_token_encrypted,
+    # API Secret -> refresh_token_encrypted (reuses the existing nullable LargeBinary column).
+    access_token_encrypted = encrypt_token(payload.api_key_id, user_id=current_user.id)
+    refresh_token_encrypted = encrypt_token(payload.api_secret, user_id=current_user.id)
+
+    conn = BrokerConnection(
+        user_id=current_user.id,
+        broker="alpaca",
+        account_id=account_id,
+        access_token_encrypted=access_token_encrypted,
+        refresh_token_encrypted=refresh_token_encrypted,
+        status="active",
+    )
+    session.add(conn)
+    await session.commit()
+    await session.refresh(conn)
+
+    return BrokerConnectionResponse(
+        id=str(conn.id),
+        broker="alpaca",
+        account_id=conn.account_id,
+        status=conn.status,
+    )
+
+
 # --------------------------------------------------------------------- connect
 
 
@@ -137,6 +221,10 @@ async def broker_connect(
     The caller (mobile) opens ``redirect_url`` in a system browser; the
     broker then redirects back to the configured callback URI with an
     authorization ``code`` query parameter.
+
+    NOTE: Alpaca now primarily connects via the per-user credentials endpoint
+    (``POST /api/auth/broker/alpaca/credentials``); this OAuth-URL behaviour is
+    retained scaffolding for a future real-OAuth follow-up.
     """
     settings = get_settings()
     if broker == "alpaca":
@@ -177,13 +265,12 @@ async def broker_callback(
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ) -> BrokerConnectionResponse:
-    """Exchange the OAuth code for tokens, encrypt, and persist.
+    """Retired OAuth callback handler.
 
-    The real token-exchange HTTP call is stubbed in MVP — we store the raw
-    ``code`` as a placeholder access token so downstream code has a concrete
-    encrypt/decrypt path to exercise. When the live Alpaca OAuth app is
-    registered, replace the ``placeholder_access_token`` block with an
-    ``httpx.AsyncClient.post`` to Alpaca's ``/oauth/token`` endpoint.
+    The Alpaca OAuth callback is retired in favour of the per-user credentials
+    endpoint (``POST /api/auth/broker/alpaca/credentials``); it previously
+    stored insecure placeholder tokens and now returns 410 Gone. Zerodha
+    remains a 501 stub until its OAuth ships.
     """
     if broker == "zerodha":
         raise HTTPException(
@@ -191,33 +278,14 @@ async def broker_callback(
             detail="Zerodha OAuth ships in M4",
         )
 
-    # TODO(m1-4): replace with real Alpaca token exchange once OAuth app is
-    # registered. See TechSpec v1.3 §broker-oauth.
-    placeholder_access_token = f"alpaca-access-{payload.code}"
-    placeholder_refresh_token = f"alpaca-refresh-{payload.code}"
-    account_id = f"paper-{str(current_user.id)[:8]}"
-
-    access_encrypted = encrypt_token(placeholder_access_token, user_id=current_user.id)
-    refresh_encrypted = encrypt_token(placeholder_refresh_token, user_id=current_user.id)
-
-    conn = BrokerConnection(
-        user_id=current_user.id,
-        broker=broker,
-        account_id=account_id,
-        access_token_encrypted=access_encrypted,
-        refresh_token_encrypted=refresh_encrypted,
-        status="active",
-    )
-    session.add(conn)
-    await session.commit()
-    await session.refresh(conn)
-
-    return BrokerConnectionResponse(
-        id=str(conn.id),
-        broker=broker,
-        account_id=account_id,
-        status=conn.status,
-    )
+    if broker == "alpaca":
+        raise HTTPException(
+            status_code=status.HTTP_410_GONE,
+            detail=(
+                "Alpaca now connects via POST /api/auth/broker/alpaca/credentials "
+                "(per-user API keys)"
+            ),
+        )
 
 
 # --------------------------------------------------------------------- status

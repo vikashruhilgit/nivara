@@ -370,6 +370,121 @@ def test_build_adapter_constructs_zerodha_adapter_for_zerodha_connection() -> No
         enc_module.reset_master_key_cache()
 
 
+def test_build_adapter_constructs_alpaca_adapter_with_per_user_creds() -> None:
+    """AC#3/#4: alpaca sync builds an AlpacaAdapter from the per-user Key ID
+    (access_token_encrypted) + Secret (refresh_token_encrypted), never the
+    global settings.alpaca_api_secret, and never leaks creds across users."""
+    import base64
+    import os
+
+    from backend.app.api import portfolio as portfolio_module
+    from backend.app.brokers.alpaca import AlpacaAdapter
+    from backend.app.config import Settings
+    from backend.app.services import encryption as enc_module
+
+    master_key = base64.urlsafe_b64encode(os.urandom(32)).decode()
+    settings = Settings(
+        master_encryption_key=master_key,
+        alpaca_api_secret="GLOBAL-SECRET-MUST-NOT-BE-USED",
+    )
+    orig_portfolio_settings = portfolio_module.get_settings
+    orig_enc_settings = enc_module.get_settings
+    portfolio_module.get_settings = lambda: settings  # type: ignore[assignment]
+    enc_module.get_settings = lambda: settings  # type: ignore[assignment]
+    enc_module.reset_master_key_cache()
+
+    try:
+        u1 = uuid4()
+        conn1 = BrokerConnection(
+            user_id=u1,
+            broker="alpaca",
+            account_id="acct-1",
+            access_token_encrypted=enc_module.encrypt_token("PKuser1", user_id=u1),
+            refresh_token_encrypted=enc_module.encrypt_token("secret-user1", user_id=u1),
+            status="active",
+        )
+        adapter1 = portfolio_module._build_adapter(conn1, u1.bytes)
+        assert isinstance(adapter1, AlpacaAdapter)
+        assert adapter1._api_key == "PKuser1"
+        assert adapter1._api_secret == "secret-user1"
+        # AC#3: the global secret is never wired through.
+        assert adapter1._api_secret != "GLOBAL-SECRET-MUST-NOT-BE-USED"
+
+        # AC#4: a second user's adapter carries its own creds — no leakage.
+        u2 = uuid4()
+        conn2 = BrokerConnection(
+            user_id=u2,
+            broker="alpaca",
+            account_id="acct-2",
+            access_token_encrypted=enc_module.encrypt_token("PKuser2", user_id=u2),
+            refresh_token_encrypted=enc_module.encrypt_token("secret-user2", user_id=u2),
+            status="active",
+        )
+        adapter2 = portfolio_module._build_adapter(conn2, u2.bytes)
+        assert isinstance(adapter2, AlpacaAdapter)
+        assert adapter2._api_key == "PKuser2"
+        assert adapter2._api_secret == "secret-user2"
+        assert adapter2._api_key != adapter1._api_key
+        assert adapter2._api_secret != adapter1._api_secret
+    finally:
+        portfolio_module.get_settings = orig_portfolio_settings  # type: ignore[assignment]
+        enc_module.get_settings = orig_enc_settings  # type: ignore[assignment]
+        enc_module.reset_master_key_cache()
+
+
+def test_build_adapter_rejects_stale_stub_alpaca_rows() -> None:
+    """AC#8 unit: legacy stub rows (placeholder tokens) and rows missing the
+    per-user secret are rejected with StaleBrokerConnectionError."""
+    import base64
+    import os
+
+    from backend.app.api import portfolio as portfolio_module
+    from backend.app.config import Settings
+    from backend.app.services import encryption as enc_module
+
+    master_key = base64.urlsafe_b64encode(os.urandom(32)).decode()
+    settings = Settings(
+        master_encryption_key=master_key,
+        alpaca_api_secret="GLOBAL-SECRET-MUST-NOT-BE-USED",
+    )
+    orig_portfolio_settings = portfolio_module.get_settings
+    orig_enc_settings = enc_module.get_settings
+    portfolio_module.get_settings = lambda: settings  # type: ignore[assignment]
+    enc_module.get_settings = lambda: settings  # type: ignore[assignment]
+    enc_module.reset_master_key_cache()
+
+    try:
+        # Case (a): placeholder OAuth-stub tokens.
+        u_a = uuid4()
+        stub = BrokerConnection(
+            user_id=u_a,
+            broker="alpaca",
+            account_id="acct-stub",
+            access_token_encrypted=enc_module.encrypt_token("alpaca-access-X", user_id=u_a),
+            refresh_token_encrypted=enc_module.encrypt_token("alpaca-refresh-X", user_id=u_a),
+            status="active",
+        )
+        with pytest.raises(portfolio_module.StaleBrokerConnectionError):
+            portfolio_module._build_adapter(stub, u_a.bytes)
+
+        # Case (b): real Key ID but no per-user secret stored.
+        u_b = uuid4()
+        no_secret = BrokerConnection(
+            user_id=u_b,
+            broker="alpaca",
+            account_id="acct-nosecret",
+            access_token_encrypted=enc_module.encrypt_token("PKx", user_id=u_b),
+            refresh_token_encrypted=None,
+            status="active",
+        )
+        with pytest.raises(portfolio_module.StaleBrokerConnectionError):
+            portfolio_module._build_adapter(no_secret, u_b.bytes)
+    finally:
+        portfolio_module.get_settings = orig_portfolio_settings  # type: ignore[assignment]
+        enc_module.get_settings = orig_enc_settings  # type: ignore[assignment]
+        enc_module.reset_master_key_cache()
+
+
 async def test_unresolved_symbol_skipped_with_warning(session: AsyncSession) -> None:
     """A broker symbol we can't map must skip the position, not crash."""
     _aapl, _tsla, conn, user_id = await _seed_instruments_and_connection(session)

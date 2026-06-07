@@ -99,6 +99,7 @@ Nivara/                          # repo root
 - **Branch naming:** `feat/*`, `fix/*`, `chore/*`, `refactor/*`.
 - **Commits:** Conventional Commits (`feat(scope): ...`, `fix(scope): ...`).
 - **Task linking:** end body with `Closes <job-id>` when closing a Supervisor job.
+- **PR base:** open PRs against `main` (canonical default branch).
 - **Pre-commit:** `.pre-commit-config.yaml` runs ruff, ruff-format, mypy, and
   hygiene hooks. Install once: `pre-commit install`.
 
