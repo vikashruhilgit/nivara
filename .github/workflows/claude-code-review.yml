@@ -21,21 +21,45 @@ jobs:
       - name: Run Claude Code Review
         uses: anthropics/claude-code-action@v1
         # Advisory reviewer: an infra timeout / rate-limit must not block merges.
-        # The review still posts its comments; the job just won't fail the PR.
+        # The review still posts its comment; the job just won't fail the PR.
         continue-on-error: true
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           prompt: |
-            Review this pull request for the InvestIQ codebase. Focus on:
+            REPO: ${{ github.repository }}
+            PR NUMBER: ${{ github.event.pull_request.number }}
+
+            You are reviewing a pull request for InvestIQ, an AI-driven,
+            mobile-first investment platform (FastAPI async backend + Expo /
+            React Native mobile).
+
+            First, read the actual changes:
+              gh pr diff ${{ github.event.pull_request.number }}
+            Use `gh pr view`, Read, Grep, and Glob to inspect surrounding code
+            and the repo's CLAUDE.md for conventions when you need more context.
+
+            Review the diff and focus on:
             - Correctness and potential bugs
-            - Security (auth is bearer-token only; never reintroduce cookies/CSRF;
-              never log secrets or raw broker tokens)
+            - Security: auth is bearer-token ONLY; never reintroduce
+              cookies/CSRF; never log secrets or raw broker tokens; watch for
+              auth, user-enumeration, and timing issues
             - Adherence to CLAUDE.md conventions (async-first I/O, settings via
-              get_settings(), idempotency key = (broker_connection_id, instrument_id))
+              get_settings(), idempotency key =
+              (broker_connection_id, instrument_id))
             - Test coverage for new code (target >=80%)
-            Be concise. Leave inline comments for specific issues and a short summary.
-          # --max-turns 15 was too low: Opus at --effort high exhausted it on
-          # multi-file diffs and returned error_max_turns (hard CI failure).
-          # Raise the budget and pre-allow read tools so the reviewer doesn't
-          # waste turns on permission denials.
-          claude_args: "--model claude-opus-4-8 --effort high --max-turns 40 --allowed-tools Bash,Read,Grep,Glob"
+
+            Be concise and constructive. Lead with a one-paragraph summary, then
+            list specific issues with file:line references and concrete fixes.
+            If the PR looks solid, say so briefly.
+
+            Post your review as a single PR comment:
+              gh pr comment ${{ github.event.pull_request.number }} --body "<your review>"
+          # Give the reviewer read access to the repo plus the scoped gh
+          # commands it needs to pull the diff and post one consolidated
+          # comment. Pulling the diff via `gh pr diff` (not `git diff`) means
+          # the shallow fetch-depth:1 checkout still yields a complete view of
+          # the change set — this is the main quality fix over the old setup.
+          # --max-turns 40 + continue-on-error keep an infra hiccup from
+          # blocking merges; Opus at --effort high needs the larger budget on
+          # multi-file diffs.
+          claude_args: '--model claude-opus-4-8 --effort high --max-turns 40 --allowed-tools "Read,Grep,Glob,Bash(gh pr diff:*),Bash(gh pr view:*),Bash(gh pr comment:*),Bash(gh pr list:*),Bash(gh issue view:*)"'

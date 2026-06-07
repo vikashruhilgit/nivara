@@ -231,8 +231,27 @@ async def test_record_unexpected_closed_is_idempotent(
 # ---------------- verification stub ----------------
 
 
-async def test_verify_calendars_stub_returns_empty_report() -> None:
-    """The stub emits an empty drift report for all supported exchanges."""
+async def test_verify_calendars_returns_empty_report_without_overrides(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """With no override rows, the weekly verification job reports no drift.
+
+    ``verify_calendars`` opens its own session via
+    ``backend.app.db._session_factory`` (it bypasses the FastAPI dependency
+    overrides the other tests rely on), so point that factory at an in-memory
+    SQLite DB. This keeps the test hermetic — no live Postgres required.
+    """
+    import backend.app.db as db_module
+
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    async with engine.begin() as conn:
+        await conn.run_sync(lambda s: CalendarOverride.__table__.create(s))
+    factory = async_sessionmaker(bind=engine, class_=AsyncSession, expire_on_commit=False)
+    monkeypatch.setattr(db_module, "_session_factory", lambda: factory)
+
     report = await verify_calendars()
+
     assert report.has_drift is False
     assert set(report.exchanges_checked) == {"XNYS", "XNAS", "XBOM"}
+
+    await engine.dispose()

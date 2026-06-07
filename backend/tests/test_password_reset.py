@@ -143,21 +143,15 @@ async def test_valid_reset_changes_password_and_is_single_use(
     assert resp.json()["detail"] == _RESET_DONE_DETAIL
 
     # Old password no longer works; new password does (password_hash changed).
-    old_login = await client.post(
-        "/api/auth/login", json={"email": email, "password": old_pw}
-    )
+    old_login = await client.post("/api/auth/login", json={"email": email, "password": old_pw})
     assert old_login.status_code == 401
 
-    new_login = await client.post(
-        "/api/auth/login", json={"email": email, "password": new_pw}
-    )
+    new_login = await client.post("/api/auth/login", json={"email": email, "password": new_pw})
     assert new_login.status_code == 200, new_login.text
     assert new_login.json()["access_token"]
 
     # Single-use: replaying the same token fails with a generic 400.
-    replay = await client.post(
-        _RESET, json={"token": token, "new_password": "anotherpass123"}
-    )
+    replay = await client.post(_RESET, json={"token": token, "new_password": "anotherpass123"})
     assert replay.status_code == 400
     assert replay.json()["detail"] == "Invalid or expired reset token"
 
@@ -216,9 +210,7 @@ async def test_reset_with_expired_token_400(
     # Simulate expiry / eviction by deleting the stored key before the reset.
     await fake_redis.delete(f"{_PWRESET_PREFIX}{_sha256_hex(token)}")
 
-    resp = await client.post(
-        _RESET, json={"token": token, "new_password": "brandnewpass99"}
-    )
+    resp = await client.post(_RESET, json={"token": token, "new_password": "brandnewpass99"})
     assert resp.status_code == 400
     assert resp.json()["detail"] == "Invalid or expired reset token"
 
