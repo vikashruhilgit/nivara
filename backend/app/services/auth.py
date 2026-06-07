@@ -18,7 +18,8 @@ Storage schema:
   Single-use: read+delete via GETDEL on reset. Only the sha256 of the token
   is stored; the raw token travels to the user solely by email.
 * ``auth:pwreset:rl:email:{email}`` / ``auth:pwreset:rl:ip:{ip}`` → fixed-window
-  request counters (INCR + EXPIRE) for forgot-password rate limiting.
+  request counters for forgot-password rate limiting. The INCR + window EXPIRE
+  (NX) run in one pipeline so the key always carries a TTL.
 """
 
 from __future__ import annotations
@@ -239,15 +240,23 @@ class AuthService:
     # --- password reset (forgot / reset) --------------------------------
 
     async def _check_rate_limit(self, key: str) -> None:
-        """Fixed-window counter: INCR ``key``, set TTL on first hit.
+        """Fixed-window counter: atomically INCR ``key`` and ensure a TTL.
+
+        The INCR and the window EXPIRE run in a single Redis pipeline so the
+        window key can never end up without a TTL (which would otherwise block
+        an email/IP forever if the process died between the two commands).
+        ``EXPIRE ... NX`` only sets the expiry when none exists yet, preserving
+        fixed-window semantics (later hits in the same window don't slide it).
 
         Raises ``HTTPException(429)`` once the count exceeds the configured
         per-window maximum.
         """
         cfg = self.settings
-        count = int(await self.redis.incr(key))
-        if count == 1:
-            await self.redis.expire(key, cfg.password_reset_rate_limit_window_seconds)
+        async with self.redis.pipeline(transaction=True) as pipe:
+            pipe.incr(key)
+            pipe.expire(key, cfg.password_reset_rate_limit_window_seconds, nx=True)
+            results = await pipe.execute()
+        count = int(results[0])
         if count > cfg.password_reset_rate_limit_max:
             raise HTTPException(
                 status_code=status.HTTP_429_TOO_MANY_REQUESTS,
@@ -274,6 +283,12 @@ class AuthService:
         inline are microsecond-scale, comparable to ``login``'s dummy-hash work.
         """
         normalized = email.lower()
+        # The per-email rate limit is an intentional anti-abuse tradeoff: it
+        # also lets an attacker who knows a victim's address exhaust that
+        # victim's reset quota (a soft DoS on resets). Counting only for
+        # *existing* users was deliberately rejected — branching the limit on
+        # account existence would re-introduce the enumeration signal this flow
+        # is designed to remove. The per-IP limit below bounds broad abuse.
         await self._check_rate_limit(f"{_PWRESET_RL_EMAIL_PREFIX}{normalized}")
         if ip:
             await self._check_rate_limit(f"{_PWRESET_RL_IP_PREFIX}{ip}")

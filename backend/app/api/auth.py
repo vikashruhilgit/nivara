@@ -84,6 +84,11 @@ async def forgot_password(
     background_tasks: BackgroundTasks,
     svc: AuthService = Depends(_service),
 ) -> MessageResponse:
+    # ``request.client.host`` is the immediate-peer IP. That is correct for
+    # local/dev and direct connections. TODO: behind a trusted reverse
+    # proxy / load balancer this will be the proxy's IP — the real client IP
+    # must instead be derived from a validated ``X-Forwarded-For`` using a
+    # configured trusted-hop count (never trust the raw header end-to-end).
     ip = request.client.host if request.client else None
     await svc.request_password_reset(payload.email, ip=ip, background_tasks=background_tasks)
     return MessageResponse(detail="If that email exists, a reset link has been sent.")

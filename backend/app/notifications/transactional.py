@@ -12,9 +12,14 @@ pattern in :mod:`backend.app.notifications.email`.
 
 Delivery is best-effort and **never raises** on missing/incomplete SMTP
 configuration: the calling endpoint must not fail just because email
-transport is not configured. In ``development`` only, the reset code/link is
+transport is not configured. In ``development`` only, the reset code is
 logged so a local dev can complete the flow; in other environments the code
 is never logged (secrets hygiene per CLAUDE.md).
+
+The email presents the reset **code** for manual entry in the app's Reset
+Password screen. The secret is deliberately never embedded in a URL query
+string (which would leak via access logs / referer headers); deep-linking is
+a designated Phase-2 follow-up.
 """
 
 from __future__ import annotations
@@ -50,7 +55,7 @@ def _build_smtp_config() -> SmtpConfig | None:
 
 
 def _build_reset_message(
-    cfg: SmtpConfig, to_email: str, code: str, reset_link: str
+    cfg: SmtpConfig, to_email: str, code: str, expires_minutes: int
 ) -> EmailMessage:
     msg = EmailMessage()
     msg["Subject"] = "Your InvestIQ password reset code"
@@ -60,9 +65,9 @@ def _build_reset_message(
         "You (or someone using your email) requested a password reset for "
         "your InvestIQ account.\n\n"
         f"Your password reset code is: {code}\n\n"
-        f"You can also reset your password here: {reset_link}\n\n"
-        "This code expires shortly. If you did not request a reset, you can "
-        "safely ignore this email."
+        "Open the InvestIQ app, go to the Reset Password screen, and enter "
+        f"this code. It expires in {expires_minutes} minutes.\n\n"
+        "If you did not request a reset, you can safely ignore this email."
     )
     return msg
 
@@ -79,24 +84,24 @@ def _send_sync(cfg: SmtpConfig, msg: EmailMessage) -> None:
 
 
 async def send_password_reset_email(to_email: str, code: str) -> None:
-    """Send a password-reset code (and link) to ``to_email``.
+    """Send a password-reset code to ``to_email`` for manual entry in-app.
 
     Never raises: on missing SMTP config the function degrades gracefully so
-    the calling endpoint cannot fail. In ``development`` the code/link is
-    logged for local testing; in other environments the code is never logged.
+    the calling endpoint cannot fail. In ``development`` the code is logged for
+    local testing; in other environments the code is never logged. The code is
+    never placed in a URL (no secret-in-query-string leakage).
     """
     settings = get_settings()
-    reset_link = f"{settings.app_public_base_url.rstrip('/')}/reset-password?code={code}"
+    expires_minutes = settings.password_reset_token_expires_minutes
 
     cfg = _build_smtp_config()
     if cfg is None:
         if settings.environment == "development":
             logger.warning(
                 "Transactional email: SMTP not configured; password reset for "
-                "%s NOT emailed. DEV-ONLY reset code=%s link=%s",
+                "%s NOT emailed. DEV-ONLY reset code=%s",
                 to_email,
                 code,
-                reset_link,
             )
         else:
             logger.warning(
@@ -106,7 +111,7 @@ async def send_password_reset_email(to_email: str, code: str) -> None:
             )
         return
 
-    msg = _build_reset_message(cfg, to_email, code, reset_link)
+    msg = _build_reset_message(cfg, to_email, code, expires_minutes)
 
     try:
         await asyncio.to_thread(_send_sync, cfg, msg)
