@@ -122,3 +122,16 @@ async def send_password_reset_email(to_email: str, code: str) -> None:
             to_email,
         )
         return
+    except Exception as exc:  # noqa: BLE001 - best-effort sender must never propagate
+        # ANY other failure must be swallowed so the calling endpoint cannot
+        # fail. A common real-world case is a UnicodeEncodeError raised by
+        # smtplib.login() when an SMTP credential contains a stray non-ASCII
+        # character (e.g. a non-breaking space copied from a provider's UI).
+        # The reset code is never logged here.
+        logger.warning(
+            "Transactional email: unexpected %s sending password reset to %s "
+            "(verify SMTP credentials contain no stray/non-ASCII characters)",
+            exc.__class__.__name__,
+            to_email,
+        )
+        return

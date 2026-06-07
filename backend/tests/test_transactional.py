@@ -185,7 +185,16 @@ async def test_smtp_configured_sends_with_code_in_body(
 
 @pytest.mark.parametrize(
     "exc",
-    [smtplib.SMTPException("boom"), OSError("connection refused")],
+    [
+        smtplib.SMTPException("boom"),
+        OSError("connection refused"),
+        # Non-SMTP failures must also be swallowed (never-raise contract). The
+        # UnicodeEncodeError mirrors a real incident: an app password copied
+        # from Google's UI carried a non-breaking space, so smtplib.login()
+        # raised while ASCII-encoding the credential.
+        ValueError("unexpected non-SMTP error"),
+        UnicodeEncodeError("ascii", "\xa0", 0, 1, "ordinal not in range(128)"),
+    ],
 )
 async def test_smtp_send_error_is_swallowed(
     patch_settings: Callable[..., Settings],
