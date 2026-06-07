@@ -1,12 +1,14 @@
 /**
- * BrokerConnect — initiates the broker OAuth flow.
+ * BrokerConnect — links a broker account to the InvestIQ user.
  *
- * Alpaca (standard OAuth2):
- *   1. Hit GET /api/auth/broker/alpaca/connect?redirect_uri=investiq://oauth/alpaca
- *      → { redirect_url }
- *   2. Open the redirect URL via expo-web-browser's in-app browser
- *   3. Alpaca redirects back to `investiq://oauth/alpaca` with ?code=...
- *   4. POST /api/auth/broker/alpaca/callback { code, state }
+ * Alpaca (API key credentials):
+ *   The user pastes their Alpaca API Key ID + API Secret into a form. These are
+ *   POSTed once to /api/auth/broker/alpaca/credentials over HTTPS; the backend
+ *   verifies them and persists a broker_connection row. The credentials are held
+ *   ONLY in React state for the lifetime of the form and are never written to
+ *   expo-secure-store / AsyncStorage or any persistent storage on device.
+ *   (The previous Alpaca OAuth /connect + /callback flow is retired — callback
+ *   now returns 410.)
  *
  * Zerodha / Kite Connect (NOT standard OAuth2 — login endpoint redirects back
  * with a `request_token` which the backend must exchange for an access_token
@@ -23,27 +25,32 @@
  *
  * expo-auth-session is declared as a peer (makeRedirectUri is the
  * documented way to derive the redirect URI under the `investiq://` scheme),
- * while expo-web-browser drives the actual OAuth session — it's the
+ * while expo-web-browser drives the actual Zerodha session — it's the
  * supported primitive in Expo SDK 52.
  */
 
 import * as AuthSession from 'expo-auth-session';
 import * as WebBrowser from 'expo-web-browser';
 import { useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, StyleSheet, Text, View } from 'react-native';
+import {
+  ActivityIndicator,
+  Alert,
+  Pressable,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
 
-import { apiGet, apiPost } from '../api/client';
+import { apiPost, getApiErrorMessage } from '../api/client';
 
 type BrokerName = 'alpaca' | 'zerodha';
 
-interface ConnectResponse {
-  redirect_url: string;
+interface BrokerConnectionResponse {
+  id: string;
   broker: string;
-}
-
-interface CallbackResponse {
-  connected: boolean;
-  broker: string;
+  account_id: string;
+  status: string;
 }
 
 interface ZerodhaExchangeResponse {
@@ -78,42 +85,32 @@ export function BrokerConnect({
   onConnected?: () => void;
 }): React.ReactElement {
   const [busy, setBusy] = useState(false);
+  const [apiKeyId, setApiKeyId] = useState('');
+  const [apiSecret, setApiSecret] = useState('');
 
-  async function runAlpacaFlow(): Promise<void> {
-    const redirectUri = AuthSession.makeRedirectUri({
-      scheme: 'investiq',
-      path: `oauth/${broker}`,
-    });
+  async function submitAlpacaCredentials(): Promise<void> {
+    setBusy(true);
+    try {
+      const resp = await apiPost<
+        BrokerConnectionResponse,
+        { api_key_id: string; api_secret: string }
+      >('/api/auth/broker/alpaca/credentials', {
+        api_key_id: apiKeyId.trim(),
+        api_secret: apiSecret.trim(),
+      });
 
-    const { redirect_url } = await apiGet<ConnectResponse>(
-      `/api/auth/broker/${broker}/connect?redirect_uri=${encodeURIComponent(redirectUri)}`,
-    );
-
-    const result = await WebBrowser.openAuthSessionAsync(redirect_url, redirectUri);
-
-    if (result.type !== 'success' || !result.url) {
-      if (result.type === 'cancel' || result.type === 'dismiss') return;
-      Alert.alert('Broker connect failed', 'Authentication did not complete.');
-      return;
-    }
-
-    const params = parseCallbackParams(result.url);
-    const code = params.code;
-    if (!code) {
-      Alert.alert('Broker connect failed', params.error ?? 'Missing authorisation code.');
-      return;
-    }
-
-    const callback = await apiPost<CallbackResponse>(
-      `/api/auth/broker/${broker}/callback`,
-      { code, state: params.state },
-    );
-
-    if (callback.connected) {
-      Alert.alert('Connected', `${broker} account linked.`);
-      onConnected?.();
-    } else {
-      Alert.alert('Broker connect failed', 'Backend did not confirm connection.');
+      if (resp.status === 'active') {
+        setApiSecret('');
+        setApiKeyId('');
+        Alert.alert('Connected', 'Alpaca account linked.');
+        onConnected?.();
+      } else {
+        Alert.alert('Broker connect failed', `Backend returned status=${resp.status}.`);
+      }
+    } catch (err) {
+      Alert.alert('Broker connect failed', getApiErrorMessage(err));
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -169,34 +166,79 @@ export function BrokerConnect({
     }
   }
 
-  async function handleConnect(): Promise<void> {
+  async function handleZerodhaConnect(): Promise<void> {
     setBusy(true);
     try {
-      if (broker === 'zerodha') {
-        await runZerodhaFlow();
-      } else {
-        await runAlpacaFlow();
-      }
+      await runZerodhaFlow();
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'unknown error';
-      Alert.alert('Broker connect failed', msg);
+      Alert.alert('Zerodha connect failed', getApiErrorMessage(err));
     } finally {
       setBusy(false);
     }
+  }
+
+  if (broker === 'alpaca') {
+    const canSubmit = apiKeyId.trim().length > 0 && apiSecret.trim().length > 0 && !busy;
+
+    return (
+      <View style={styles.container}>
+        <Text style={styles.label}>API Key ID</Text>
+        <TextInput
+          style={styles.input}
+          value={apiKeyId}
+          onChangeText={setApiKeyId}
+          editable={!busy}
+          autoCapitalize="none"
+          autoCorrect={false}
+          placeholder="PK..."
+          placeholderTextColor="#8b949e"
+        />
+
+        <Text style={styles.label}>API Secret</Text>
+        <TextInput
+          style={styles.input}
+          value={apiSecret}
+          onChangeText={setApiSecret}
+          editable={!busy}
+          secureTextEntry
+          autoCapitalize="none"
+          autoCorrect={false}
+          placeholder="••••••••"
+          placeholderTextColor="#8b949e"
+        />
+
+        <Pressable
+          accessibilityRole="button"
+          onPress={submitAlpacaCredentials}
+          disabled={!canSubmit}
+          style={({ pressed }) => [
+            styles.btn,
+            (pressed || busy) && styles.btnPressed,
+            !canSubmit && styles.btnDisabled,
+          ]}
+        >
+          {busy ? (
+            <ActivityIndicator color="#fff" />
+          ) : (
+            <Text style={styles.btnText}>Connect Alpaca</Text>
+          )}
+        </Pressable>
+      </View>
+    );
   }
 
   return (
     <View style={styles.container}>
       <Pressable
         accessibilityRole="button"
-        onPress={handleConnect}
+        onPress={handleZerodhaConnect}
         disabled={busy}
         style={({ pressed }) => [styles.btn, (pressed || busy) && styles.btnPressed]}
       >
         {busy ? (
           <ActivityIndicator color="#fff" />
         ) : (
-          <Text style={styles.btnText}>Connect {broker === 'alpaca' ? 'Alpaca' : 'Zerodha'}</Text>
+          <Text style={styles.btnText}>Connect Zerodha</Text>
         )}
       </Pressable>
     </View>
@@ -207,15 +249,36 @@ const styles = StyleSheet.create({
   container: {
     marginVertical: 8,
   },
+  label: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#c9d1d9',
+    marginBottom: 4,
+    marginTop: 8,
+  },
+  input: {
+    borderWidth: 1,
+    borderColor: '#30363d',
+    borderRadius: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    marginVertical: 4,
+    fontSize: 16,
+    color: '#c9d1d9',
+  },
   btn: {
     backgroundColor: '#1f6feb',
     paddingVertical: 12,
     paddingHorizontal: 16,
     borderRadius: 8,
     alignItems: 'center',
+    marginTop: 12,
   },
   btnPressed: {
     opacity: 0.7,
+  },
+  btnDisabled: {
+    opacity: 0.5,
   },
   btnText: {
     color: '#fff',

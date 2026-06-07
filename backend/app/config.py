@@ -55,9 +55,18 @@ class Settings(BaseSettings):
     master_encryption_key: str | None = None
 
     # Alpaca (paper trading by default — never point MVP at live).
+    #
+    # ``alpaca_api_key`` / ``alpaca_api_secret`` are dev / single-account
+    # convenience only (e.g. local seed/smoke scripts). Per-user Alpaca access
+    # uses per-user API keys entered at connect time and stored encrypted per
+    # ``broker_connections`` row — the portfolio-sync path no longer reads
+    # ``alpaca_api_secret``.
     alpaca_api_key: str | None = None
     alpaca_api_secret: str | None = None
+    # Paper-trading base URL used by the per-user adapter.
     alpaca_base_url: str = "https://paper-api.alpaca.markets"
+    # Currently unused — reserved for a future real-Alpaca-OAuth follow-up
+    # (Pattern 1). Not used by the per-user-keys path.
     alpaca_oauth_client_id: str | None = None
     alpaca_oauth_redirect_uri: str = "http://localhost:8000/api/auth/broker/alpaca/callback"
 

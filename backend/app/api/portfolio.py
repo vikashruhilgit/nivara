@@ -56,6 +56,21 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/portfolio", tags=["portfolio"])
 
+
+class StaleBrokerConnectionError(Exception):
+    """A broker connection predates per-user credentials and must be re-linked.
+
+    Raised by `_build_adapter` for legacy Alpaca rows created by the retired
+    OAuth stub path (placeholder tokens) or rows missing the per-user secret.
+    The sync route catches this, invalidates the row, and asks the user to
+    reconnect — it never feeds a bogus secret to the broker adapter (AC#8).
+    """
+
+    def __init__(self, *, connection_id: object) -> None:
+        super().__init__(f"broker connection {connection_id} requires reconnect")
+        self.connection_id = connection_id
+
+
 # Redis lock TTL per user sync (seconds). Guards against stuck locks if the
 # process dies mid-sync — the lock naturally expires.
 _SYNC_LOCK_TTL = 60
@@ -84,13 +99,20 @@ def _build_adapter(connection: BrokerConnection, user_id_bytes: bytes) -> Broker
     """
     settings = get_settings()
     if connection.broker == "alpaca":
-        # Alpaca's read API uses the api-key/secret headers directly; we decrypt
-        # the stored access token and reuse settings' API secret. In MVP the
-        # token stored IS the api key; full OAuth flow lands in a later job.
-        access_key = decrypt_token(connection.access_token_encrypted, user_id=connection.user_id)
-        api_secret = settings.alpaca_api_secret or ""
+        # Per-user Alpaca API keys: Key ID lives in access_token_encrypted,
+        # API Secret in refresh_token_encrypted (both encrypted per-user). The
+        # global settings.alpaca_api_secret is no longer used in the sync path.
+        if connection.refresh_token_encrypted is None:
+            raise StaleBrokerConnectionError(connection_id=connection.id)
+        api_key_id = decrypt_token(connection.access_token_encrypted, user_id=connection.user_id)
+        api_secret = decrypt_token(connection.refresh_token_encrypted, user_id=connection.user_id)
+        # Reject rows created by the retired OAuth stub path (placeholder tokens
+        # of the form "alpaca-access-{code}" / "alpaca-refresh-{code}"). Feeding
+        # the bogus placeholder as a secret would silently 401 at Alpaca (AC#8).
+        if api_key_id.startswith("alpaca-access-") or api_secret.startswith("alpaca-refresh-"):
+            raise StaleBrokerConnectionError(connection_id=connection.id)
         return AlpacaAdapter(
-            api_key=access_key,
+            api_key=api_key_id,
             api_secret=api_secret,
             base_url=settings.alpaca_base_url,
         )
@@ -167,7 +189,17 @@ async def sync_portfolio(
                 detail="Sync already in progress for this user",
             )
 
-        adapter = _build_adapter(connection, current_user.id.bytes)
+        try:
+            adapter = _build_adapter(connection, current_user.id.bytes)
+        except StaleBrokerConnectionError:
+            # Legacy stub connection — invalidate so the dashboard shows a
+            # reconnect CTA (auth_expired) and never sync with a bogus secret.
+            connection.status = "expired"
+            await session.commit()
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Alpaca connection must be re-linked with per-user API keys",
+            ) from None
         mapping_svc = SymbolMappingService(session)
         audit_svc = AuditService(session)
         sync_svc = PortfolioSyncService(

@@ -20,6 +20,8 @@ from zoneinfo import ZoneInfo
 import fakeredis.aioredis
 import pytest
 import pytest_asyncio
+from backend.app.api import broker_auth as broker_auth_module
+from backend.app.brokers.errors import BrokerAPIError, BrokerErrorCode
 from backend.app.config import Settings, get_settings
 from backend.app.db import get_session
 from backend.app.main import app
@@ -27,7 +29,7 @@ from backend.app.models.broker_connections import BrokerConnection
 from backend.app.models.users import User
 from backend.app.redis_client import get_redis
 from backend.app.services import encryption as enc_module
-from backend.app.services.encryption import decrypt_token, reset_master_key_cache
+from backend.app.services.encryption import decrypt_token, encrypt_token, reset_master_key_cache
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
@@ -163,9 +165,11 @@ async def test_zerodha_connect_returns_501(
     assert resp.status_code == 501
 
 
-async def test_alpaca_callback_persists_encrypted_tokens(
+async def test_alpaca_callback_retired_returns_410(
     broker_client: tuple[AsyncClient, AsyncSession, Settings],
 ) -> None:
+    """The Alpaca OAuth callback is retired in favour of the credentials
+    endpoint — it now returns 410 Gone and creates no row."""
     client, session, _ = broker_client
     token = await _register_and_token(client)
     resp = await client.post(
@@ -173,22 +177,129 @@ async def test_alpaca_callback_persists_encrypted_tokens(
         headers={"Authorization": f"Bearer {token}"},
         json={"code": "oauth-code-12345"},
     )
+    assert resp.status_code == 410, resp.text
+    # No row created by the retired path.
+    rows = (await session.execute(select(BrokerConnection))).scalars().all()
+    assert len(rows) == 0
+
+
+# --------------------------------------------------------- alpaca credentials
+
+
+async def _fake_verify_ok(api_key_id: str, api_secret: str) -> str:  # noqa: ARG001
+    return "ALPACA-ACCT-001"
+
+
+async def test_alpaca_credentials_persists_encrypted_per_user(
+    broker_client: tuple[AsyncClient, AsyncSession, Settings],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """AC#1/#5/#6: per-user API keys are verified, encrypted, and persisted;
+    the raw key/secret never appear in the response body or ciphertext."""
+    client, session, _ = broker_client
+    token = await _register_and_token(client)
+
+    monkeypatch.setattr(broker_auth_module, "_verify_alpaca_account", _fake_verify_ok)
+
+    resp = await client.post(
+        "/api/auth/broker/alpaca/credentials",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"api_key_id": "PKTESTKEY123", "api_secret": "topsecretvalue"},
+    )
     assert resp.status_code == 201, resp.text
     body = resp.json()
     assert body["broker"] == "alpaca"
+    assert body["account_id"] == "ALPACA-ACCT-001"
     assert body["status"] == "active"
+    assert body["id"]
+    # AC#5: secret/key never echoed back in the response.
+    assert "topsecretvalue" not in resp.text
+    assert "PKTESTKEY123" not in resp.text
 
-    # Verify row + ciphertext in DB.
     rows = (await session.execute(select(BrokerConnection))).scalars().all()
     assert len(rows) == 1
     row = rows[0]
     assert row.broker == "alpaca"
-    assert isinstance(row.access_token_encrypted, bytes)
-    assert b"alpaca-access-oauth-code-12345" not in row.access_token_encrypted
+    assert row.account_id == "ALPACA-ACCT-001"
+    # Key ID -> access_token_encrypted, Secret -> refresh_token_encrypted.
+    assert decrypt_token(row.access_token_encrypted, user_id=row.user_id) == "PKTESTKEY123"
+    assert decrypt_token(row.refresh_token_encrypted, user_id=row.user_id) == "topsecretvalue"
+    # Plaintext must not survive in the stored ciphertext bytes.
+    assert b"PKTESTKEY123" not in row.access_token_encrypted
+    assert b"topsecretvalue" not in row.refresh_token_encrypted
 
-    # And we can decrypt with the per-user key.
-    pt = decrypt_token(row.access_token_encrypted, user_id=row.user_id)
-    assert pt == "alpaca-access-oauth-code-12345"
+
+async def test_alpaca_credentials_invalid_returns_401_no_row(
+    broker_client: tuple[AsyncClient, AsyncSession, Settings],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """AC#2: Alpaca rejecting the creds maps to 401 and creates no row."""
+    client, session, _ = broker_client
+    token = await _register_and_token(client)
+
+    async def _fake_verify_bad(api_key_id: str, api_secret: str) -> str:  # noqa: ARG001
+        raise BrokerAPIError(
+            BrokerErrorCode.AUTH_EXPIRED,
+            "bad creds",
+            broker="alpaca",
+            status_code=401,
+        )
+
+    monkeypatch.setattr(broker_auth_module, "_verify_alpaca_account", _fake_verify_bad)
+
+    resp = await client.post(
+        "/api/auth/broker/alpaca/credentials",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"api_key_id": "PKBAD", "api_secret": "wrongsecret"},
+    )
+    assert resp.status_code == 401, resp.text
+    rows = (await session.execute(select(BrokerConnection))).scalars().all()
+    assert len(rows) == 0
+
+
+async def test_alpaca_credentials_requires_auth(
+    broker_client: tuple[AsyncClient, AsyncSession, Settings],
+) -> None:
+    """The credentials endpoint requires an authenticated user."""
+    client, _, _ = broker_client
+    resp = await client.post(
+        "/api/auth/broker/alpaca/credentials",
+        json={"api_key_id": "PKx", "api_secret": "sx"},
+    )
+    assert resp.status_code == 401
+
+
+async def test_sync_invalidates_stale_alpaca_stub_returns_409(
+    broker_client: tuple[AsyncClient, AsyncSession, Settings],
+) -> None:
+    """AC#8 integration: a legacy stub Alpaca row (placeholder tokens) is
+    invalidated on sync — the route returns 409 and flips status to expired."""
+    client, session, _ = broker_client
+    token = await _register_and_token(client)
+
+    user_id = await _get_current_user_id(session)
+    conn = BrokerConnection(
+        user_id=user_id,
+        broker="alpaca",
+        account_id="stale-acct",
+        access_token_encrypted=encrypt_token("alpaca-access-OLD", user_id=user_id),
+        refresh_token_encrypted=encrypt_token("alpaca-refresh-OLD", user_id=user_id),
+        status="active",
+    )
+    session.add(conn)
+    await session.commit()
+
+    resp = await client.post(
+        "/api/portfolio/sync",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 409, resp.text
+
+    refreshed = (
+        await session.execute(select(BrokerConnection).where(BrokerConnection.id == conn.id))
+    ).scalar_one()
+    await session.refresh(refreshed)
+    assert refreshed.status == "expired"
 
 
 # --------------------------------------------------------------------- connections status
