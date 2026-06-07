@@ -1,44 +1,42 @@
 /**
  * AuthGuard — redirects based on auth state.
  *
- * - While hydrating: shows a loader (no redirect).
+ * IMPORTANT (expo-router): the root layout must mount its navigator (<Stack>)
+ * on the first render. So this guard must NOT replace `children` with a loader
+ * or <Redirect> — doing so prevents the navigator from mounting and throws
+ * "Attempted to navigate before mounting the Root Layout component."
+ *
+ * Instead we always render `children` (the navigator) and perform redirects
+ * imperatively in a post-mount effect:
+ * - While hydrating: do nothing (the index/screens render null until settled).
  * - Unauthenticated + not in /(auth) group: redirect to /(auth)/sign-in.
  * - Authenticated + in /(auth) group: redirect to /(tabs)/portfolio.
  */
 
-import { Redirect, useSegments } from 'expo-router';
-import { ActivityIndicator, StyleSheet, View } from 'react-native';
+import { useRouter, useSegments } from 'expo-router';
+import { useEffect } from 'react';
 
 import { useAuthStore } from '../store/auth';
 
 export function AuthGuard({ children }: { children: React.ReactNode }): React.ReactElement {
   const status = useAuthStore((s) => s.status);
   const segments = useSegments();
-  const inAuthGroup = segments[0] === '(auth)';
+  const router = useRouter();
 
-  if (status === 'idle' || status === 'hydrating') {
-    return (
-      <View style={styles.loader}>
-        <ActivityIndicator size="large" />
-      </View>
-    );
-  }
+  useEffect(() => {
+    // Wait until auth state has settled before navigating.
+    if (status === 'idle' || status === 'hydrating') {
+      return;
+    }
 
-  if (status === 'unauthenticated' && !inAuthGroup) {
-    return <Redirect href="/(auth)/sign-in" />;
-  }
+    const inAuthGroup = segments[0] === '(auth)';
 
-  if (status === 'authenticated' && inAuthGroup) {
-    return <Redirect href="/(tabs)/portfolio" />;
-  }
+    if (status === 'unauthenticated' && !inAuthGroup) {
+      router.replace('/(auth)/sign-in');
+    } else if (status === 'authenticated' && inAuthGroup) {
+      router.replace('/(tabs)/portfolio');
+    }
+  }, [status, segments, router]);
 
   return <>{children}</>;
 }
-
-const styles = StyleSheet.create({
-  loader: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-});
