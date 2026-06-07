@@ -20,6 +20,9 @@ jobs:
 
       - name: Run Claude Code Review
         uses: anthropics/claude-code-action@v1
+        # Advisory reviewer: an infra timeout / rate-limit must not block merges.
+        # The review still posts its comments; the job just won't fail the PR.
+        continue-on-error: true
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           prompt: |
@@ -31,4 +34,8 @@ jobs:
               get_settings(), idempotency key = (broker_connection_id, instrument_id))
             - Test coverage for new code (target >=80%)
             Be concise. Leave inline comments for specific issues and a short summary.
-          claude_args: "--model claude-opus-4-8 --effort high --max-turns 15"
+          # --max-turns 15 was too low: Opus at --effort high exhausted it on
+          # multi-file diffs and returned error_max_turns (hard CI failure).
+          # Raise the budget and pre-allow read tools so the reviewer doesn't
+          # waste turns on permission denials.
+          claude_args: "--model claude-opus-4-8 --effort high --max-turns 40 --allowed-tools Bash,Read,Grep,Glob"
