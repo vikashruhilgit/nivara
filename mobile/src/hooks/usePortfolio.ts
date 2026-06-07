@@ -28,6 +28,50 @@ export interface PortfolioSummary {
 }
 
 /**
+ * Backend wire shape for GET /api/portfolio/summary (``PortfolioSummaryOut``).
+ * Money values are Decimals serialised as JSON strings, and the backend does
+ * NOT send a daily-change percentage — both are reconciled in normalizeSummary.
+ */
+interface PortfolioSummaryOut {
+  base_currency: string;
+  total_value: string;
+  total_cost_basis: string;
+  total_unrealized_pl: string;
+  daily_pl: string;
+  position_count: number;
+  as_of: string;
+  is_stale: boolean;
+  confidence: string;
+}
+
+/** Coerce a string/number/undefined to a finite number, defaulting to 0. */
+function toNumber(value: unknown): number {
+  const n = typeof value === 'number' ? value : Number(value);
+  return Number.isFinite(n) ? n : 0;
+}
+
+/**
+ * Map the backend summary onto the display shape the UI consumes. Coerces
+ * string Decimals to numbers and derives ``day_change_pct`` (which the backend
+ * does not return) from the prior value, guarding against division by zero for
+ * an empty / cash-only portfolio.
+ */
+function normalizeSummary(raw: PortfolioSummaryOut): PortfolioSummary {
+  const totalValue = toNumber(raw.total_value);
+  const dayChange = toNumber(raw.daily_pl);
+  const prior = totalValue - dayChange;
+  const dayChangePct = prior !== 0 ? (dayChange / prior) * 100 : 0;
+  return {
+    total_value: totalValue,
+    cash: 0, // not provided by the backend summary; unused by the UI
+    positions_value: totalValue, // backend has no cash/positions split
+    day_change: dayChange,
+    day_change_pct: dayChangePct,
+    currency: raw.base_currency,
+  };
+}
+
+/**
  * FX attribution for cross-currency holdings. Mirrors backend
  * ``FxAttributionOut`` (snake_case, all numeric fields are Decimals serialised
  * as JSON numbers by FastAPI).
@@ -100,7 +144,8 @@ export function usePortfolioSummary(): UseQueryResult<PortfolioSummary, Error> {
   const status = useAuthStore((s) => s.status);
   return useQuery({
     queryKey: ['portfolio', 'summary'],
-    queryFn: () => apiGet<PortfolioSummary>('/api/portfolio/summary'),
+    queryFn: () =>
+      apiGet<PortfolioSummaryOut>('/api/portfolio/summary').then(normalizeSummary),
     enabled: status === 'authenticated',
     staleTime: 30_000,
   });

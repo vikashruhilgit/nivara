@@ -16,7 +16,11 @@ export function PnLDisplay({
   currency,
   compact = false,
 }: PnLDisplayProps): React.ReactElement {
-  const gain = amount >= 0;
+  // Defensive: callers may pass undefined/NaN (e.g. fields the backend omits),
+  // so coerce to finite numbers rather than crashing on `.toFixed`.
+  const safeAmount = Number.isFinite(amount) ? amount : 0;
+  const safePct = Number.isFinite(pct) ? pct : 0;
+  const gain = safeAmount >= 0;
   const sign = gain ? '+' : '';
   return (
     <Text
@@ -26,8 +30,8 @@ export function PnLDisplay({
       ]}
     >
       {sign}
-      {formatCurrency(amount, currency)} ({sign}
-      {pct.toFixed(2)}%)
+      {formatCurrency(safeAmount, currency)} ({sign}
+      {safePct.toFixed(2)}%)
     </Text>
   );
 }
