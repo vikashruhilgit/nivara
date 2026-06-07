@@ -1,4 +1,4 @@
-import { Link } from 'expo-router';
+import { Link, useRouter } from 'expo-router';
 import { useState } from 'react';
 import {
   ActivityIndicator,
@@ -14,10 +14,11 @@ import {
 import { getApiErrorMessage } from '../../src/api/client';
 import { useAuthStore } from '../../src/store/auth';
 
-export default function SignInScreen(): React.ReactElement {
-  const signIn = useAuthStore((s) => s.signIn);
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
+export default function ResetPasswordScreen(): React.ReactElement {
+  const resetPassword = useAuthStore((s) => s.resetPassword);
+  const router = useRouter();
+  const [code, setCode] = useState('');
+  const [newPassword, setNewPassword] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -25,7 +26,8 @@ export default function SignInScreen(): React.ReactElement {
     setBusy(true);
     setError(null);
     try {
-      await signIn(email.trim(), password);
+      await resetPassword(code.trim(), newPassword);
+      router.replace('/(auth)/sign-in');
     } catch (err) {
       setError(getApiErrorMessage(err));
     } finally {
@@ -33,7 +35,7 @@ export default function SignInScreen(): React.ReactElement {
     }
   }
 
-  const disabled = busy || !email || !password;
+  const disabled = busy || !code || !newPassword;
 
   return (
     <KeyboardAvoidingView
@@ -41,29 +43,29 @@ export default function SignInScreen(): React.ReactElement {
       style={styles.container}
     >
       <View style={styles.form}>
-        <Text style={styles.title}>Sign in to InvestIQ</Text>
+        <Text style={styles.title}>Set a new password</Text>
 
         <TextInput
-          accessibilityLabel="Email"
-          placeholder="email@example.com"
-          keyboardType="email-address"
+          accessibilityLabel="Reset code"
+          placeholder="Reset code"
           autoCapitalize="none"
-          autoComplete="email"
+          autoCorrect={false}
           style={styles.input}
-          value={email}
-          onChangeText={setEmail}
+          value={code}
+          onChangeText={setCode}
           editable={!busy}
         />
         <TextInput
-          accessibilityLabel="Password"
-          placeholder="Password"
+          accessibilityLabel="New password"
+          placeholder="New password"
           secureTextEntry
-          autoComplete="password"
+          autoComplete="password-new"
           style={styles.input}
-          value={password}
-          onChangeText={setPassword}
+          value={newPassword}
+          onChangeText={setNewPassword}
           editable={!busy}
         />
+        <Text style={styles.hint}>Password must be at least 8 characters.</Text>
 
         {error && <Text style={styles.error}>{error}</Text>}
 
@@ -76,15 +78,15 @@ export default function SignInScreen(): React.ReactElement {
             (pressed || disabled) && styles.btnDisabled,
           ]}
         >
-          {busy ? <ActivityIndicator color="#fff" /> : <Text style={styles.btnText}>Sign in</Text>}
+          {busy ? (
+            <ActivityIndicator color="#fff" />
+          ) : (
+            <Text style={styles.btnText}>Reset password</Text>
+          )}
         </Pressable>
 
-        <Link href="/(auth)/forgot-password" style={styles.link}>
-          Forgot password?
-        </Link>
-
-        <Link href="/(auth)/sign-up" style={styles.link}>
-          Don&apos;t have an account? Sign up
+        <Link href="/(auth)/sign-in" style={styles.link}>
+          Back to sign in
         </Link>
       </View>
     </KeyboardAvoidingView>
@@ -114,4 +116,5 @@ const styles = StyleSheet.create({
   btnText: { color: '#fff', fontSize: 16, fontWeight: '600' },
   link: { color: '#1f6feb', marginTop: 12, textAlign: 'center' },
   error: { color: '#cf222e', fontSize: 14 },
+  hint: { color: '#57606a', fontSize: 13 },
 });

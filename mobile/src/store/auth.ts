@@ -43,6 +43,8 @@ interface AuthState {
   hydrate: () => Promise<void>;
   signIn: (email: string, password: string) => Promise<void>;
   signUp: (email: string, password: string, fullName?: string) => Promise<void>;
+  requestPasswordReset: (email: string) => Promise<void>;
+  resetPassword: (token: string, newPassword: string) => Promise<void>;
   signOut: () => Promise<void>;
   refresh: () => Promise<string | null>;
   setUser: (u: UserPublic | null) => void;
@@ -133,6 +135,21 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     } catch {
       // ignore
     }
+  },
+
+  // Unauthenticated: requests a password-reset email. Stores nothing and does
+  // not change auth state — backend always responds 200 with a generic detail.
+  async requestPasswordReset(email) {
+    await apiPost<{ detail: string }>('/api/auth/password/forgot', { email });
+  },
+
+  // Unauthenticated: completes a password reset using the emailed token. Stores
+  // nothing (no tokens persisted) and does not change auth state.
+  async resetPassword(token, newPassword) {
+    await apiPost<{ detail: string }>('/api/auth/password/reset', {
+      token,
+      new_password: newPassword,
+    });
   },
 
   async signOut() {

@@ -11,17 +11,19 @@ from backend.app.db import get_session
 from backend.app.models.users import User
 from backend.app.redis_client import get_redis
 from backend.app.schemas.auth import (
+    ForgotPasswordRequest,
     LoginRequest,
     LogoutRequest,
     MessageResponse,
     PasswordChangeRequest,
     RefreshRequest,
     RegisterRequest,
+    ResetPasswordRequest,
     TokenPair,
     UserPublic,
 )
 from backend.app.services.auth import AuthService
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, BackgroundTasks, Depends, Request, status
 from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -73,6 +75,32 @@ async def change_password(
         new_password=payload.new_password,
     )
     return MessageResponse(detail="password changed")
+
+
+@router.post("/password/forgot", response_model=MessageResponse)
+async def forgot_password(
+    payload: ForgotPasswordRequest,
+    request: Request,
+    background_tasks: BackgroundTasks,
+    svc: AuthService = Depends(_service),
+) -> MessageResponse:
+    # ``request.client.host`` is the immediate-peer IP. That is correct for
+    # local/dev and direct connections. TODO: behind a trusted reverse
+    # proxy / load balancer this will be the proxy's IP — the real client IP
+    # must instead be derived from a validated ``X-Forwarded-For`` using a
+    # configured trusted-hop count (never trust the raw header end-to-end).
+    ip = request.client.host if request.client else None
+    await svc.request_password_reset(payload.email, ip=ip, background_tasks=background_tasks)
+    return MessageResponse(detail="If that email exists, a reset link has been sent.")
+
+
+@router.post("/password/reset", response_model=MessageResponse)
+async def reset_password(
+    payload: ResetPasswordRequest,
+    svc: AuthService = Depends(_service),
+) -> MessageResponse:
+    await svc.reset_password(payload.token, payload.new_password)
+    return MessageResponse(detail="Password has been reset.")
 
 
 @router.get("/me", response_model=UserPublic)

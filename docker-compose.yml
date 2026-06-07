@@ -54,6 +54,19 @@ services:
       JWT_KID: dev
       JWT_PRIVATE_KEY_PATH: /app/keys/jwt_dev_private.pem
       JWT_PUBLIC_KEY_PATH: /app/keys/jwt_dev_public.pem
+      # Transactional email (SMTP) — left to .env so local values are not
+      # shadowed. Uncomment + set here only to override .env in this container.
+      # SMTP_HOST:
+      # SMTP_PORT:
+      # SMTP_USERNAME:
+      # SMTP_PASSWORD:
+      # SMTP_FROM_EMAIL:
+      # SMTP_USE_TLS:
+      # Password reset tuning (kept in .env; uncomment to override here).
+      # PASSWORD_RESET_TOKEN_EXPIRES_MINUTES:
+      # PASSWORD_RESET_RATE_LIMIT_MAX:
+      # PASSWORD_RESET_RATE_LIMIT_WINDOW_SECONDS:
+      # APP_PUBLIC_BASE_URL:
     volumes:
       - ./keys:/app/keys:ro
     ports:

@@ -126,6 +126,28 @@ class Settings(BaseSettings):
     # notifications remain in-app only.
     expo_push_access_token: str | None = None
 
+    # --- Transactional email (SMTP) -----------------------------------------
+    # App-wide SMTP transport used by transactional senders (e.g. password
+    # reset). All optional with safe defaults so dev/test boot unchanged.
+    # When ``smtp_host`` / ``smtp_from_email`` are unset, the transactional
+    # sender degrades gracefully (no email sent; in development it logs the
+    # reset code so a local dev can complete the flow).
+    smtp_host: str | None = None
+    smtp_port: int = 587
+    smtp_username: str | None = None
+    smtp_password: str | None = None
+    smtp_from_email: str | None = None
+    smtp_use_tls: bool = True
+
+    # --- Password reset (forgot-password flow) ------------------------------
+    # Reset codes expire after ``password_reset_token_expires_minutes``.
+    # Requests are rate-limited to ``..._max`` per ``..._window_seconds``.
+    # ``app_public_base_url`` is used to build the reset link in the email body.
+    password_reset_token_expires_minutes: int = 30
+    password_reset_rate_limit_max: int = 5
+    password_reset_rate_limit_window_seconds: int = 900
+    app_public_base_url: str = "http://localhost:8000"
+
 
 @lru_cache
 def get_settings() -> Settings:

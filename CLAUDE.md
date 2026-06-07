@@ -27,7 +27,7 @@ AI-generated recommendations, and execute trades from their phone.
 - **Task queue:** Celery 5
 - **Settings:** pydantic-settings (`backend/app/config.py`)
 - **HTTP client:** httpx
-- **Auth:** python-jose (JWT) + passlib (bcrypt)
+- **Auth:** python-jose (JWT) + argon2-cffi (`argon2.PasswordHasher`)
 - **Tooling:** uv (resolution), ruff (lint+format), mypy --strict, pytest +
   pytest-asyncio
 
