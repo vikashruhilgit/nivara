@@ -1,1 +1,1 @@
-export { api, apiGet, apiPost, configureAuth, API_BASE_URL } from './client';
+export { api, apiGet, apiPost, configureAuth, getApiErrorMessage, API_BASE_URL } from './client';

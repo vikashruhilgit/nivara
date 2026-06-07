@@ -11,6 +11,7 @@ import {
   View,
 } from 'react-native';
 
+import { getApiErrorMessage } from '../../src/api/client';
 import { useAuthStore } from '../../src/store/auth';
 
 export default function SignInScreen(): React.ReactElement {
@@ -26,8 +27,7 @@ export default function SignInScreen(): React.ReactElement {
     try {
       await signIn(email.trim(), password);
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Sign-in failed';
-      setError(msg);
+      setError(getApiErrorMessage(err));
     } finally {
       setBusy(false);
     }

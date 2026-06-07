@@ -129,6 +129,75 @@ api.interceptors.response.use(
   },
 );
 
+/** A single FastAPI validation error entry (422 `detail[]`). */
+interface ValidationDetail {
+  loc?: (string | number)[];
+  msg?: string;
+  type?: string;
+}
+
+const FIELD_LABELS: Record<string, string> = {
+  email: 'Email',
+  password: 'Password',
+  full_name: 'Full name',
+  current_password: 'Current password',
+  new_password: 'New password',
+};
+
+function capitalize(s: string): string {
+  return s ? s.charAt(0).toUpperCase() + s.slice(1) : s;
+}
+
+function formatValidationDetail(item: ValidationDetail): string {
+  const field = String(item.loc?.[item.loc.length - 1] ?? '');
+  const label = FIELD_LABELS[field] ?? capitalize(field.replace(/_/g, ' '));
+
+  // Friendly overrides for the common cases.
+  if (field === 'password' && item.type === 'string_too_short') {
+    return 'Password must be at least 8 characters.';
+  }
+  if (field === 'email') {
+    return 'Enter a valid email address.';
+  }
+
+  const msg = item.msg ?? 'is invalid';
+  return label ? `${label}: ${msg}` : msg;
+}
+
+/**
+ * Turn any thrown error (axios or otherwise) into a user-facing message.
+ *
+ * Handles FastAPI's two error shapes — `{detail: "..."}` (HTTPException) and
+ * `{detail: [{loc, msg, type}, ...]}` (422 validation) — plus network/timeout
+ * cases, instead of leaking axios's generic "Request failed with status code N".
+ */
+export function getApiErrorMessage(err: unknown): string {
+  if (axios.isAxiosError(err)) {
+    const detail = (err.response?.data as { detail?: unknown } | undefined)?.detail;
+
+    if (typeof detail === 'string' && detail.trim()) {
+      return detail;
+    }
+    if (Array.isArray(detail) && detail.length > 0) {
+      return (detail as ValidationDetail[]).map(formatValidationDetail).join('\n');
+    }
+    if (err.code === 'ECONNABORTED') {
+      return 'Request timed out. Check your connection and try again.';
+    }
+    if (!err.response) {
+      return 'Cannot reach the server. Make sure the backend is running.';
+    }
+    if (err.response.status === 422) {
+      return 'Some fields are invalid. Please check and try again.';
+    }
+    return err.message;
+  }
+  if (err instanceof Error) {
+    return err.message;
+  }
+  return 'Something went wrong. Please try again.';
+}
+
 export async function apiGet<T>(url: string, config?: AxiosRequestConfig): Promise<T> {
   const r = await api.get<T>(url, config);
   return r.data;
