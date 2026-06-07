@@ -14,11 +14,17 @@ Storage schema:
 * ``auth:rt:{token}`` → JSON ``{"user_id": ..., "pw_v": N}`` with TTL.
   Single-use: read+delete via GETDEL on refresh; explicit DEL on logout.
 * ``auth:pwv:{user_id}`` → integer counter. Bumped on password change.
+* ``auth:pwreset:{sha256(token)}`` → JSON ``{"user_id": ...}`` with TTL.
+  Single-use: read+delete via GETDEL on reset. Only the sha256 of the token
+  is stored; the raw token travels to the user solely by email.
+* ``auth:pwreset:rl:email:{email}`` / ``auth:pwreset:rl:ip:{ip}`` → fixed-window
+  request counters (INCR + EXPIRE) for forgot-password rate limiting.
 """
 
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import json
 from dataclasses import dataclass
 from uuid import UUID
@@ -28,6 +34,7 @@ from argon2.exceptions import VerifyMismatchError
 from backend.app.auth.jwt import create_access_token, generate_refresh_token
 from backend.app.config import Settings, get_settings
 from backend.app.models.users import User
+from backend.app.notifications.transactional import send_password_reset_email
 from backend.app.schemas.auth import TokenPair
 from fastapi import HTTPException, status
 from redis.asyncio import Redis
@@ -37,6 +44,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 _REFRESH_PREFIX = "auth:rt:"
 _PWV_PREFIX = "auth:pwv:"
+_PWRESET_PREFIX = "auth:pwreset:"
+_PWRESET_RL_EMAIL_PREFIX = "auth:pwreset:rl:email:"
+_PWRESET_RL_IP_PREFIX = "auth:pwreset:rl:ip:"
 
 
 def _rt_key(token: str) -> str:
@@ -45,6 +55,14 @@ def _rt_key(token: str) -> str:
 
 def _pwv_key(user_id: UUID) -> str:
     return f"{_PWV_PREFIX}{user_id}"
+
+
+def _sha256_hex(token: str) -> str:
+    return hashlib.sha256(token.encode()).hexdigest()
+
+
+def _pwreset_key(token_hash: str) -> str:
+    return f"{_PWRESET_PREFIX}{token_hash}"
 
 
 @dataclass
@@ -214,6 +232,78 @@ class AuthService:
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Current password incorrect",
             ) from exc
+        user.password_hash = self._hasher.hash(new_password)
+        await self.session.commit()
+        await self._bump_pw_version(user.id)
+
+    # --- password reset (forgot / reset) --------------------------------
+
+    async def _check_rate_limit(self, key: str) -> None:
+        """Fixed-window counter: INCR ``key``, set TTL on first hit.
+
+        Raises ``HTTPException(429)`` once the count exceeds the configured
+        per-window maximum.
+        """
+        cfg = self.settings
+        count = int(await self.redis.incr(key))
+        if count == 1:
+            await self.redis.expire(key, cfg.password_reset_rate_limit_window_seconds)
+        if count > cfg.password_reset_rate_limit_max:
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail="Too many password reset requests. Please try again later.",
+            )
+
+    async def request_password_reset(self, email: str, *, ip: str | None = None) -> None:
+        """Begin a password-reset flow for ``email`` (never reveals existence).
+
+        Rate-limited per-email and per-IP. If the email maps to an active user,
+        an opaque token is generated, its sha256 stored in Redis with a TTL,
+        and the raw token emailed. Missing/inactive users are silently ignored.
+        """
+        normalized = email.lower()
+        await self._check_rate_limit(f"{_PWRESET_RL_EMAIL_PREFIX}{normalized}")
+        if ip:
+            await self._check_rate_limit(f"{_PWRESET_RL_IP_PREFIX}{ip}")
+
+        result = await self.session.execute(select(User).where(User.email == normalized))
+        user = result.scalar_one_or_none()
+        if user is None or not user.is_active:
+            # Never reveal whether the email exists.
+            return
+
+        token = generate_refresh_token()
+        token_hash = _sha256_hex(token)
+        payload = json.dumps({"user_id": str(user.id)})
+        ttl_seconds = self.settings.password_reset_token_expires_minutes * 60
+        await self.redis.set(_pwreset_key(token_hash), payload, ex=ttl_seconds)
+        await send_password_reset_email(user.email, token)
+
+    async def reset_password(self, token: str, new_password: str) -> None:
+        """Consume a reset token (atomic single-use) and set a new password.
+
+        Raises ``HTTPException(400)`` on a missing/expired token. On success the
+        password is rehashed and the per-user ``pw_v`` counter bumped so all
+        previously-issued refresh tokens are invalidated.
+        """
+        token_hash = _sha256_hex(token)
+        raw = await self.redis.getdel(_pwreset_key(token_hash))
+        invalid = HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid or expired reset token",
+        )
+        if raw is None:
+            raise invalid
+        try:
+            data = json.loads(raw)
+            user_id = UUID(str(data["user_id"]))
+        except (ValueError, KeyError, TypeError) as exc:
+            raise invalid from exc
+
+        user = await self.session.get(User, user_id)
+        if user is None or not user.is_active:
+            raise invalid
+
         user.password_hash = self._hasher.hash(new_password)
         await self.session.commit()
         await self._bump_pw_version(user.id)
