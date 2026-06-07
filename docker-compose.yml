@@ -42,7 +42,10 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+    env_file:
+      - .env
     environment:
+      # These override .env so DB/Redis resolve to in-network hostnames, not localhost.
       ENVIRONMENT: development
       DATABASE_URL: postgresql+asyncpg://investiq:investiq@postgres:5432/investiq
       REDIS_URL: redis://redis:6379/0

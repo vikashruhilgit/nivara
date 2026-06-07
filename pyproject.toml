@@ -62,7 +62,7 @@ pythonpath = ["."]
 
 [tool.ruff]
 line-length = 100
-target-version = "py311"
+target-version = "py312"
 src = ["backend"]
 
 [tool.ruff.lint]
@@ -70,7 +70,7 @@ select = ["E", "F", "W", "I", "UP", "B", "SIM", "ASYNC"]
 ignore = ["E501"]
 
 [tool.mypy]
-python_version = "3.11"
+python_version = "3.12"
 strict = true
 files = ["backend/app"]
 explicit_package_bases = true

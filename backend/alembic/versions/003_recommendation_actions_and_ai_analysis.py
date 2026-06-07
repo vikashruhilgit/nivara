@@ -1,6 +1,6 @@
 """Extend recommendation_type_enum + ai_analysis_log for MODE 4 shadow mode.
 
-Revision ID: 003_recommendation_actions_and_ai_analysis
+Revision ID: 003_reco_actions_ai_log
 Revises: 002_audit_immutability
 Create Date: 2026-04-15
 
@@ -27,7 +27,7 @@ from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from alembic import op
 
 # revision identifiers, used by Alembic.
-revision: str = "003_recommendation_actions_and_ai_analysis"
+revision: str = "003_reco_actions_ai_log"
 down_revision: str | Sequence[str] | None = "002_audit_immutability"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None

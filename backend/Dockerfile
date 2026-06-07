@@ -1,5 +1,5 @@
 # Multi-stage build for FastAPI backend
-FROM python:3.11-slim AS base
+FROM python:3.12-slim AS base
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -18,7 +18,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN pip install uv
 
 # Copy project metadata first for better layer caching
-COPY pyproject.toml ./
+COPY pyproject.toml README.md alembic.ini manage.py ./
 COPY backend/ ./backend/
 
 RUN uv pip install --system -e .

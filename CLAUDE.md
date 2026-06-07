@@ -19,7 +19,7 @@ AI-generated recommendations, and execute trades from their phone.
 ## Tech Stack
 
 ### Backend (`backend/`)
-- **Language:** Python 3.11
+- **Language:** Python 3.12
 - **Framework:** FastAPI (async)
 - **ORM:** SQLAlchemy 2.0 (async) + Alembic migrations
 - **DB:** Postgres 16
