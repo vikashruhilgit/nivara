@@ -50,6 +50,12 @@ services:
       DATABASE_URL: postgresql+asyncpg://investiq:investiq@postgres:5432/investiq
       REDIS_URL: redis://redis:6379/0
       JWT_SECRET: dev-only-change-me
+      JWT_ALGORITHM: RS256
+      JWT_KID: dev
+      JWT_PRIVATE_KEY_PATH: /app/keys/jwt_dev_private.pem
+      JWT_PUBLIC_KEY_PATH: /app/keys/jwt_dev_public.pem
+    volumes:
+      - ./keys:/app/keys:ro
     ports:
       - "8000:8000"
     healthcheck:

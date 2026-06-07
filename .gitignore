@@ -44,3 +44,6 @@ htmlcov/
 
 # Local scratch
 temp/
+
+# JWT signing keys (never commit)
+keys/
