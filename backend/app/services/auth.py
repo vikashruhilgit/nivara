@@ -36,7 +36,7 @@ from backend.app.config import Settings, get_settings
 from backend.app.models.users import User
 from backend.app.notifications.transactional import send_password_reset_email
 from backend.app.schemas.auth import TokenPair
-from fastapi import HTTPException, status
+from fastapi import BackgroundTasks, HTTPException, status
 from redis.asyncio import Redis
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -254,12 +254,24 @@ class AuthService:
                 detail="Too many password reset requests. Please try again later.",
             )
 
-    async def request_password_reset(self, email: str, *, ip: str | None = None) -> None:
+    async def request_password_reset(
+        self,
+        email: str,
+        *,
+        ip: str | None = None,
+        background_tasks: BackgroundTasks | None = None,
+    ) -> None:
         """Begin a password-reset flow for ``email`` (never reveals existence).
 
         Rate-limited per-email and per-IP. If the email maps to an active user,
         an opaque token is generated, its sha256 stored in Redis with a TTL,
         and the raw token emailed. Missing/inactive users are silently ignored.
+
+        The email send is dispatched **out-of-band** (via ``background_tasks``
+        when supplied) so the HTTP response latency does not depend on whether
+        the user exists or on the potentially slow SMTP send — closing the
+        user-enumeration timing oracle. The token-gen + Redis SET that remain
+        inline are microsecond-scale, comparable to ``login``'s dummy-hash work.
         """
         normalized = email.lower()
         await self._check_rate_limit(f"{_PWRESET_RL_EMAIL_PREFIX}{normalized}")
@@ -277,7 +289,14 @@ class AuthService:
         payload = json.dumps({"user_id": str(user.id)})
         ttl_seconds = self.settings.password_reset_token_expires_minutes * 60
         await self.redis.set(_pwreset_key(token_hash), payload, ex=ttl_seconds)
-        await send_password_reset_email(user.email, token)
+
+        # Dispatch the email out-of-band: background tasks run AFTER the response
+        # is sent, so response latency is independent of the (potentially slow)
+        # SMTP send. The sender itself never raises on missing SMTP config.
+        if background_tasks is not None:
+            background_tasks.add_task(send_password_reset_email, user.email, token)
+        else:
+            await send_password_reset_email(user.email, token)
 
     async def reset_password(self, token: str, new_password: str) -> None:
         """Consume a reset token (atomic single-use) and set a new password.

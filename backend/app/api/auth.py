@@ -23,7 +23,7 @@ from backend.app.schemas.auth import (
     UserPublic,
 )
 from backend.app.services.auth import AuthService
-from fastapi import APIRouter, Depends, Request, status
+from fastapi import APIRouter, BackgroundTasks, Depends, Request, status
 from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -81,10 +81,11 @@ async def change_password(
 async def forgot_password(
     payload: ForgotPasswordRequest,
     request: Request,
+    background_tasks: BackgroundTasks,
     svc: AuthService = Depends(_service),
 ) -> MessageResponse:
     ip = request.client.host if request.client else None
-    await svc.request_password_reset(payload.email, ip=ip)
+    await svc.request_password_reset(payload.email, ip=ip, background_tasks=background_tasks)
     return MessageResponse(detail="If that email exists, a reset link has been sent.")
 
 
