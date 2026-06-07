@@ -5,6 +5,25 @@ import { useEffect, useMemo } from 'react';
 
 import { AuthGuard } from '../src/components/AuthGuard';
 import { configureAuthClient, useAuthStore } from '../src/store/auth';
+import { useThemeStore } from '../src/store/theme';
+import { ThemeProvider, useTheme } from '../src/theme';
+
+function ThemedRoot(): React.ReactElement {
+  const theme = useTheme();
+
+  return (
+    <>
+      {/* light scheme → dark status-bar content; dark scheme → light content */}
+      <StatusBar style={theme.scheme === 'dark' ? 'light' : 'dark'} />
+      <AuthGuard>
+        <Stack screenOptions={{ headerShown: false }}>
+          <Stack.Screen name="(auth)" />
+          <Stack.Screen name="(tabs)" />
+        </Stack>
+      </AuthGuard>
+    </>
+  );
+}
 
 export default function RootLayout(): React.ReactElement {
   const queryClient = useMemo(
@@ -21,21 +40,19 @@ export default function RootLayout(): React.ReactElement {
   );
 
   const hydrate = useAuthStore((s) => s.hydrate);
+  const hydrateTheme = useThemeStore((s) => s.hydrate);
 
   useEffect(() => {
     configureAuthClient();
     void hydrate();
-  }, [hydrate]);
+    void hydrateTheme();
+  }, [hydrate, hydrateTheme]);
 
   return (
     <QueryClientProvider client={queryClient}>
-      <StatusBar style="auto" />
-      <AuthGuard>
-        <Stack screenOptions={{ headerShown: false }}>
-          <Stack.Screen name="(auth)" />
-          <Stack.Screen name="(tabs)" />
-        </Stack>
-      </AuthGuard>
+      <ThemeProvider>
+        <ThemedRoot />
+      </ThemeProvider>
     </QueryClientProvider>
   );
 }

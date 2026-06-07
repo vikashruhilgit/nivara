@@ -3,14 +3,18 @@
  *
  * Layout: broker name on the left, colored status pill on the right.
  * Rendering rules (M4-21 AC #7-9):
- *   - connected/synced  → green pill "Synced"    (not pressable)
- *   - expired/relogin   → yellow pill "Re-login" (pressable)
- *   - disconnected/connect → gray pill "Connect" (pressable)
+ *   - connected/synced  → positive pill "Synced"   (not pressable)
+ *   - expired/relogin   → warning pill "Re-login"  (pressable)
+ *   - disconnected/connect → neutral pill "Connect" (pressable)
+ *
+ * Colors are sourced from theme tokens (no raw hex).
  */
 
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import type { BrokerAction, BrokerStatus } from '../hooks/useBrokerStatus';
+import { useTheme } from '../theme';
+import type { Theme } from '../theme';
 
 interface PillStyle {
   bg: string;
@@ -19,11 +23,14 @@ interface PillStyle {
   pressable: boolean;
 }
 
-const PILL_BY_ACTION: Record<BrokerAction, PillStyle> = {
-  synced: { bg: '#1a7f37', text: '#fff', label: 'Synced', pressable: false },
-  relogin: { bg: '#bf8700', text: '#fff', label: 'Re-login', pressable: true },
-  connect: { bg: '#57606a', text: '#fff', label: 'Connect', pressable: true },
-};
+function pillByAction(theme: Theme): Record<BrokerAction, PillStyle> {
+  const c = theme.colors;
+  return {
+    synced: { bg: c.positive, text: c.textOnAccent, label: 'Synced', pressable: false },
+    relogin: { bg: c.warning, text: c.textOnAccent, label: 'Re-login', pressable: true },
+    connect: { bg: c.neutral, text: c.textOnAccent, label: 'Connect', pressable: true },
+  };
+}
 
 const BROKER_DISPLAY: Record<BrokerStatus['broker'], string> = {
   alpaca: 'Alpaca',
@@ -37,7 +44,8 @@ export function BrokerStatusBadge({
   status: BrokerStatus;
   onPress?: () => void;
 }): React.ReactElement {
-  const pill = PILL_BY_ACTION[status.action];
+  const theme = useTheme();
+  const pill = pillByAction(theme)[status.action];
   const brokerName = BROKER_DISPLAY[status.broker];
 
   const pillContent = (
@@ -47,8 +55,18 @@ export function BrokerStatusBadge({
   );
 
   return (
-    <View style={styles.row}>
-      <Text style={styles.broker}>{brokerName}</Text>
+    <View
+      style={[
+        styles.row,
+        {
+          borderColor: theme.colors.border,
+          backgroundColor: theme.colors.surface,
+        },
+      ]}
+    >
+      <Text style={[styles.broker, { color: theme.colors.textPrimary }]}>
+        {brokerName}
+      </Text>
       {pill.pressable ? (
         <Pressable
           accessibilityRole="button"
@@ -72,14 +90,11 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     padding: 12,
     borderWidth: 1,
-    borderColor: '#d0d7de',
     borderRadius: 10,
-    backgroundColor: '#fff',
   },
   broker: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#1f2328',
   },
   pill: {
     paddingVertical: 6,

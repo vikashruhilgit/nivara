@@ -1,20 +1,21 @@
-import { StyleSheet, Text, View } from 'react-native';
+import { View } from 'react-native';
 
 import { InsightFeed } from '../../src/components/InsightFeed';
+import { useTheme } from '../../src/theme';
+import { Screen, Text } from '../../src/ui';
 
 export default function InsightsScreen(): React.ReactElement {
+  const theme = useTheme();
+
   return (
-    <View style={styles.container}>
-      <View style={styles.header}>
-        <Text style={styles.title}>Insights</Text>
+    <Screen>
+      <View style={{ paddingHorizontal: theme.spacing(4), paddingTop: theme.spacing(2) }}>
+        <Text variant="h1">Insights</Text>
+        <Text variant="body" color="secondary" style={{ marginTop: theme.spacing(1) }}>
+          AI-generated signals across your watchlist.
+        </Text>
       </View>
       <InsightFeed />
-    </View>
+    </Screen>
   );
 }
-
-const styles = StyleSheet.create({
-  container: { flex: 1 },
-  header: { paddingHorizontal: 16, paddingTop: 16, paddingBottom: 8 },
-  title: { fontSize: 24, fontWeight: '700' },
-});

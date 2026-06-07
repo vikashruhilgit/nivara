@@ -1,8 +1,15 @@
 /**
  * CurrencyToggle — segmented INR/USD base-currency switch.
+ *
+ * Token-driven styling: selected = accentMuted bg / accent text / accent border,
+ * unselected = surfaceAlt / textSecondary / border. No raw hex.
  */
 
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, View } from 'react-native';
+import type { ViewStyle } from 'react-native';
+
+import { useTheme } from '../theme';
+import { Text } from '../ui';
 
 export type BaseCurrency = 'INR' | 'USD';
 
@@ -15,23 +22,50 @@ export function CurrencyToggle({
   value: BaseCurrency;
   onChange: (v: BaseCurrency) => void;
 }): React.ReactElement {
+  const theme = useTheme();
+
+  const rowStyle: ViewStyle = {
+    flexDirection: 'row',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: theme.colors.border,
+    borderRadius: theme.radii.pill,
+    padding: theme.spacing(1),
+    alignSelf: 'flex-start',
+    backgroundColor: theme.colors.surfaceAlt,
+    gap: theme.spacing(1),
+  };
+
   return (
-    <View style={styles.row}>
+    <View style={rowStyle}>
       {OPTIONS.map((opt) => {
         const selected = opt === value;
+        const segmentStyle: ViewStyle = {
+          minHeight: 44,
+          minWidth: 44,
+          paddingVertical: theme.spacing(2),
+          paddingHorizontal: theme.spacing(4),
+          borderRadius: theme.radii.pill,
+          borderWidth: StyleSheet.hairlineWidth,
+          alignItems: 'center',
+          justifyContent: 'center',
+          backgroundColor: selected ? theme.colors.accentMuted : 'transparent',
+          borderColor: selected ? theme.colors.accent : 'transparent',
+        };
         return (
           <Pressable
             key={opt}
             accessibilityRole="button"
+            accessibilityLabel={`Base currency ${opt}`}
             accessibilityState={{ selected }}
             onPress={() => onChange(opt)}
             style={({ pressed }) => [
-              styles.segment,
-              selected && styles.segmentSelected,
-              pressed && !selected && styles.segmentPressed,
+              segmentStyle,
+              pressed && !selected && styles.pressed,
             ]}
           >
-            <Text style={[styles.label, selected && styles.labelSelected]}>{opt}</Text>
+            <Text variant="label" color={selected ? 'accent' : 'secondary'}>
+              {opt}
+            </Text>
           </Pressable>
         );
       })}
@@ -40,32 +74,5 @@ export function CurrencyToggle({
 }
 
 const styles = StyleSheet.create({
-  row: {
-    flexDirection: 'row',
-    borderWidth: 1,
-    borderColor: '#d0d7de',
-    borderRadius: 999,
-    padding: 3,
-    alignSelf: 'flex-start',
-    backgroundColor: '#fff',
-  },
-  segment: {
-    paddingVertical: 8,
-    paddingHorizontal: 18,
-    borderRadius: 999,
-  },
-  segmentSelected: {
-    backgroundColor: '#0969da',
-  },
-  segmentPressed: {
-    opacity: 0.6,
-  },
-  label: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#57606a',
-  },
-  labelSelected: {
-    color: '#fff',
-  },
+  pressed: { opacity: 0.6 },
 });

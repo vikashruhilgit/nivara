@@ -1,6 +1,9 @@
 import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 
+import { useTheme } from '../theme';
+import type { Theme } from '../theme';
+
 export type FreshnessLevel = 'fresh' | 'aging' | 'stale' | 'suppressed';
 
 export interface FreshnessBadgeProps {
@@ -14,21 +17,23 @@ interface BadgeStyle {
   label: string;
 }
 
-function styleFor(level: FreshnessLevel): BadgeStyle {
+function styleFor(theme: Theme, level: FreshnessLevel): BadgeStyle {
+  const c = theme.colors;
   switch (level) {
     case 'fresh':
-      return { bg: '#dafbe1', fg: '#1a7f37', border: '#1a7f37', label: 'Fresh' };
+      return { bg: c.positiveBg, fg: c.positive, border: c.positiveBorder, label: 'Fresh' };
     case 'aging':
-      return { bg: '#eaeef2', fg: '#57606a', border: '#d0d7de', label: 'Aging' };
+      return { bg: c.neutralBg, fg: c.neutral, border: c.neutralBorder, label: 'Aging' };
     case 'stale':
-      return { bg: '#fff8c5', fg: '#9a6700', border: '#d4a72c', label: 'Stale data' };
+      return { bg: c.warningBg, fg: c.warning, border: c.warningBorder, label: 'Stale data' };
     case 'suppressed':
-      return { bg: '#ffebe9', fg: '#cf222e', border: '#cf222e', label: 'Suppressed' };
+      return { bg: c.negativeBg, fg: c.negative, border: c.negativeBorder, label: 'Suppressed' };
   }
 }
 
 export function FreshnessBadge({ level }: FreshnessBadgeProps): React.ReactElement {
-  const s = styleFor(level);
+  const theme = useTheme();
+  const s = styleFor(theme, level);
   return (
     <View
       style={[styles.pill, { backgroundColor: s.bg, borderColor: s.border }]}

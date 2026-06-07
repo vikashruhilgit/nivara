@@ -1,7 +1,8 @@
 import React from 'react';
-import { StyleSheet, Text } from 'react-native';
 
 import { formatCurrency } from '../lib/format';
+import { Text } from '../ui';
+import type { AppTextProps } from '../ui';
 
 export interface PnLDisplayProps {
   amount: number;
@@ -20,14 +21,23 @@ export function PnLDisplay({
   // so coerce to finite numbers rather than crashing on `.toFixed`.
   const safeAmount = Number.isFinite(amount) ? amount : 0;
   const safePct = Number.isFinite(pct) ? pct : 0;
-  const gain = safeAmount >= 0;
-  const sign = gain ? '+' : '';
+  const positive = safeAmount > 0;
+  const negative = safeAmount < 0;
+  const sign = safeAmount >= 0 ? '+' : '';
+
+  // gain → positive, loss → negative, flat → neutral.
+  const color: AppTextProps['color'] = positive
+    ? 'positive'
+    : negative
+      ? 'negative'
+      : 'neutral';
+
   return (
     <Text
-      style={[
-        compact ? styles.compact : styles.base,
-        gain ? styles.gain : styles.loss,
-      ]}
+      variant={compact ? 'caption' : 'label'}
+      weight="600"
+      color={color}
+      style={{ marginTop: compact ? 2 : 4, fontVariant: ['tabular-nums'] }}
     >
       {sign}
       {formatCurrency(safeAmount, currency)} ({sign}
@@ -35,10 +45,3 @@ export function PnLDisplay({
     </Text>
   );
 }
-
-const styles = StyleSheet.create({
-  base: { fontSize: 14, marginTop: 4 },
-  compact: { fontSize: 13, marginTop: 2 },
-  gain: { color: '#1a7f37' },
-  loss: { color: '#cf222e' },
-});

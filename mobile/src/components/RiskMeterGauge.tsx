@@ -4,27 +4,30 @@
  * Implemented with pure React Native Views (no SVG dependency). The needle
  * is a thin rectangle rotated from -90 (score=0) through 0 (score=50) to
  * +90 (score=100). The dial is a half-circle split into three colored
- * zones via absolutely positioned View slices behind a white inner disc.
+ * zones via absolutely positioned View slices behind an inner disc.
  *
- * Color zones: 0-30 green, 31-60 yellow, 61-100 red.
+ * Color zones map to theme status tokens: 0-30 positive (low risk),
+ * 31-60 warning (medium), 61-100 negative (high).
  */
 
-import React from 'react';
+import React, { useMemo } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
+
+import type { Theme } from '../theme';
+import { useTheme } from '../theme';
 
 const GAUGE_SIZE = 220;
 const GAUGE_RADIUS = GAUGE_SIZE / 2;
 const INNER_RADIUS = GAUGE_RADIUS - 24;
 
-const COLOR_GREEN = '#1a7f37';
-const COLOR_YELLOW = '#bf8700';
-const COLOR_RED = '#cf222e';
-const COLOR_MUTED = '#57606a';
-
-export function zoneColor(score: number): string {
-  if (score <= 30) return COLOR_GREEN;
-  if (score <= 60) return COLOR_YELLOW;
-  return COLOR_RED;
+/**
+ * Resolve the status color for a risk score from the theme tokens.
+ * 0-30 → positive (low), 31-60 → warning (medium), 61-100 → negative (high).
+ */
+export function zoneColor(theme: Theme, score: number): string {
+  if (score <= 30) return theme.colors.positive;
+  if (score <= 60) return theme.colors.warning;
+  return theme.colors.negative;
 }
 
 export interface RiskMeterGaugeProps {
@@ -63,22 +66,30 @@ export function RiskMeterGauge({
   color,
   onPress,
 }: RiskMeterGaugeProps): React.ReactElement {
+  const theme = useTheme();
+  const styles2 = useMemo(() => makeStyles(theme), [theme]);
   const clamped = Math.max(0, Math.min(100, score));
   const needleDeg = -90 + (clamped / 100) * 180;
-  const resolvedColor = color || zoneColor(clamped);
+  const resolvedColor = color || zoneColor(theme, clamped);
+
+  const lowColor = theme.colors.positive;
+  const medColor = theme.colors.warning;
+  const highColor = theme.colors.negative;
+  const discColor = theme.colors.surface;
 
   const body = (
-    <View style={styles.card}>
-      <Text style={styles.title}>Risk Meter</Text>
+    <View style={styles2.card}>
+      <Text style={styles2.title}>Risk Meter</Text>
       <View style={styles.gauge}>
-        <Slice startDeg={-90} endDeg={-36} color={COLOR_GREEN} />
-        <Slice startDeg={-36} endDeg={18} color={COLOR_YELLOW} />
-        <Slice startDeg={18} endDeg={90} color={COLOR_RED} />
-        <View style={styles.innerDisc} />
-        <View style={styles.bottomMask} />
+        <Slice startDeg={-90} endDeg={-36} color={lowColor} />
+        <Slice startDeg={-36} endDeg={18} color={medColor} />
+        <Slice startDeg={18} endDeg={90} color={highColor} />
+        <View style={[styles.innerDisc, { backgroundColor: discColor }]} />
+        <View style={[styles.bottomMask, { backgroundColor: discColor }]} />
         <View
           style={[
             styles.needle,
+            { backgroundColor: theme.colors.textPrimary },
             { transform: [{ translateX: -2 }, { rotate: `${needleDeg}deg` }] },
           ]}
         />
@@ -86,15 +97,15 @@ export function RiskMeterGauge({
           <Text style={[styles.score, { color: resolvedColor }]}>
             {Math.round(clamped)}
           </Text>
-          <Text style={styles.scoreSub}>/ 100</Text>
+          <Text style={styles2.scoreSub}>/ 100</Text>
         </View>
       </View>
       <View style={styles.legend}>
-        <LegendDot color={COLOR_GREEN} label="Low" />
-        <LegendDot color={COLOR_YELLOW} label="Medium" />
-        <LegendDot color={COLOR_RED} label="High" />
+        <LegendDot color={lowColor} label="Low" />
+        <LegendDot color={medColor} label="Medium" />
+        <LegendDot color={highColor} label="High" />
       </View>
-      {onPress ? <Text style={styles.hint}>Tap for breakdown</Text> : null}
+      {onPress ? <Text style={styles2.hint}>Tap for breakdown</Text> : null}
     </View>
   );
 
@@ -119,29 +130,47 @@ function LegendDot({
   color: string;
   label: string;
 }): React.ReactElement {
+  const theme = useTheme();
   return (
     <View style={styles.legendItem}>
       <View style={[styles.legendDot, { backgroundColor: color }]} />
-      <Text style={styles.legendText}>{label}</Text>
+      <Text style={[styles.legendText, { color: theme.colors.textSecondary }]}>
+        {label}
+      </Text>
     </View>
   );
 }
 
+function makeStyles(theme: Theme) {
+  return StyleSheet.create({
+    card: {
+      backgroundColor: theme.colors.surface,
+      borderRadius: theme.radii.lg,
+      padding: theme.spacing(4),
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: theme.colors.border,
+      alignItems: 'center',
+    },
+    title: {
+      fontSize: theme.typography.label.fontSize,
+      color: theme.colors.textSecondary,
+      alignSelf: 'flex-start',
+      marginBottom: theme.spacing(2),
+    },
+    scoreSub: {
+      fontSize: theme.typography.caption.fontSize,
+      color: theme.colors.textSecondary,
+      marginTop: 2,
+    },
+    hint: {
+      marginTop: theme.spacing(2),
+      fontSize: theme.typography.caption.fontSize,
+      color: theme.colors.textSecondary,
+    },
+  });
+}
+
 const styles = StyleSheet.create({
-  card: {
-    backgroundColor: '#ffffff',
-    borderRadius: 12,
-    padding: 16,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: '#d0d7de',
-    alignItems: 'center',
-  },
-  title: {
-    fontSize: 14,
-    color: COLOR_MUTED,
-    alignSelf: 'flex-start',
-    marginBottom: 8,
-  },
   gauge: {
     width: GAUGE_SIZE,
     height: GAUGE_RADIUS + 24,
@@ -165,7 +194,6 @@ const styles = StyleSheet.create({
     width: GAUGE_SIZE - 48,
     height: GAUGE_SIZE - 48,
     borderRadius: INNER_RADIUS,
-    backgroundColor: '#ffffff',
   },
   bottomMask: {
     position: 'absolute',
@@ -173,7 +201,6 @@ const styles = StyleSheet.create({
     left: 0,
     width: GAUGE_SIZE,
     height: GAUGE_RADIUS,
-    backgroundColor: '#ffffff',
   },
   needle: {
     position: 'absolute',
@@ -181,7 +208,6 @@ const styles = StyleSheet.create({
     top: 16,
     width: 4,
     height: GAUGE_RADIUS - 16,
-    backgroundColor: '#24292f',
     borderRadius: 2,
     transformOrigin: 'bottom center',
   },
@@ -192,12 +218,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   score: { fontSize: 40, fontWeight: '700' },
-  scoreSub: { fontSize: 12, color: COLOR_MUTED, marginTop: 2 },
   legend: { flexDirection: 'row', gap: 16, marginTop: 8 },
   legendItem: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   legendDot: { width: 10, height: 10, borderRadius: 5 },
-  legendText: { fontSize: 12, color: COLOR_MUTED },
-  hint: { marginTop: 8, fontSize: 12, color: COLOR_MUTED },
+  legendText: { fontSize: 12 },
 });
 
 export default RiskMeterGauge;

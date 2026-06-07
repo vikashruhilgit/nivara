@@ -1,6 +1,9 @@
 import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 
+import { useTheme } from '../theme';
+import type { Theme } from '../theme';
+
 export type RecommendationAction =
   | 'strong_buy'
   | 'buy'
@@ -21,17 +24,22 @@ const ACTION_LABELS: Record<RecommendationAction, string> = {
   strong_sell: 'Strong Sell',
 };
 
-function colorFor(action: RecommendationAction): string {
+/** Background + on-color for each action, drawn from semantic tokens. */
+function colorsFor(
+  theme: Theme,
+  action: RecommendationAction,
+): { bg: string; fg: string } {
+  const c = theme.colors;
   switch (action) {
     case 'strong_buy':
     case 'buy':
-      return '#1a7f37';
+      return { bg: c.positive, fg: c.textOnAccent };
     case 'sell':
     case 'strong_sell':
-      return '#cf222e';
+      return { bg: c.negative, fg: c.textOnAccent };
     case 'hold':
     default:
-      return '#57606a';
+      return { bg: c.neutral, fg: c.textOnAccent };
   }
 }
 
@@ -39,18 +47,19 @@ export function AIRatingBadge({
   action,
   confidence,
 }: AIRatingBadgeProps): React.ReactElement | null {
+  const theme = useTheme();
   if (action === null) {
     return null;
   }
   const label = ACTION_LABELS[action];
-  const color = colorFor(action);
+  const { bg, fg } = colorsFor(theme, action);
   const text =
     confidence !== null && confidence !== undefined
       ? `${label} ${Math.round(confidence)}%`
       : label;
   return (
-    <View style={[styles.badge, { backgroundColor: color }]}>
-      <Text style={styles.text}>{text}</Text>
+    <View style={[styles.badge, { backgroundColor: bg }]}>
+      <Text style={[styles.text, { color: fg }]}>{text}</Text>
     </View>
   );
 }
@@ -64,7 +73,6 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   text: {
-    color: '#ffffff',
     fontSize: 11,
     fontWeight: '600',
   },

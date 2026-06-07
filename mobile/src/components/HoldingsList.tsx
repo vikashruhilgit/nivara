@@ -1,7 +1,8 @@
 import React from 'react';
-import { ListRenderItem, StyleSheet, View } from 'react-native';
+import { ListRenderItem, View } from 'react-native';
 
 import type { Position } from '../hooks/usePortfolio';
+import { useTheme } from '../theme';
 import { HoldingRow, Recommendation } from './HoldingRow';
 
 export interface HoldingsListProps {
@@ -12,25 +13,24 @@ export interface HoldingsListProps {
 
 /**
  * Composition component: renders all holdings as a vertical list of
- * HoldingRow components separated by a hairline. Intended for use when the
- * parent is NOT already a FlatList (e.g., inside a ScrollView).
+ * HoldingRow glass cards. Intended for use when the parent is NOT already a
+ * FlatList (e.g., inside a ScrollView).
  */
 export function HoldingsList({
   positions,
   baseCurrency,
   recommendationsByInstrument,
 }: HoldingsListProps): React.ReactElement {
+  const theme = useTheme();
   return (
-    <View>
-      {positions.map((p, idx) => (
-        <View key={p.instrument_id}>
-          {idx > 0 ? <View style={styles.sep} /> : null}
-          <HoldingRow
-            item={p}
-            baseCurrency={baseCurrency}
-            recommendation={recommendationsByInstrument?.[p.instrument_id] ?? null}
-          />
-        </View>
+    <View style={{ gap: theme.spacing(2) }}>
+      {positions.map((p) => (
+        <HoldingRow
+          key={p.instrument_id}
+          item={p}
+          baseCurrency={baseCurrency}
+          recommendation={recommendationsByInstrument?.[p.instrument_id] ?? null}
+        />
       ))}
     </View>
   );
@@ -40,6 +40,10 @@ export function HoldingsList({
  * FlatList-friendly renderItem helper. Bind `baseCurrency` + optional
  * recommendations lookup via closure, then pass the returned function to
  * `<FlatList renderItem={...} />`.
+ *
+ * Each HoldingRow is now a self-contained glass card (Card context='list'),
+ * so no inter-row separator View is needed — the FlatList contentContainer
+ * provides the row gap.
  */
 export function makeRenderHoldingRow(
   baseCurrency: string,
@@ -54,7 +58,3 @@ export function makeRenderHoldingRow(
   );
   return render;
 }
-
-const styles = StyleSheet.create({
-  sep: { height: StyleSheet.hairlineWidth, backgroundColor: '#d0d7de' },
-});

@@ -1,11 +1,17 @@
 /**
  * NotificationPreferences — per-category notification toggles.
  *
+ * Token-driven styling (no raw hex). Switch track/thumb colors come from theme.
+ *
  * TODO: persist to backend via PATCH /api/users/me/preferences once that
  * endpoint exists. Parent owns state for now.
  */
 
-import { StyleSheet, Switch, Text, View } from 'react-native';
+import { StyleSheet, Switch, View } from 'react-native';
+import type { ViewStyle } from 'react-native';
+
+import { useTheme } from '../theme';
+import { Text } from '../ui';
 
 export interface NotificationPrefs {
   marketAlerts: boolean;
@@ -40,58 +46,57 @@ export function NotificationPreferences({
   value: NotificationPrefs;
   onChange: (key: NotificationPrefKey, v: boolean) => void;
 }): React.ReactElement {
+  const theme = useTheme();
+
+  const listStyle: ViewStyle = {
+    backgroundColor: theme.colors.surfaceAlt,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: theme.colors.border,
+    borderRadius: theme.radii.md,
+    overflow: 'hidden',
+  };
+
   return (
-    <View style={styles.list}>
-      {ROWS.map((row, i) => (
-        <View
-          key={row.key}
-          style={[styles.row, i < ROWS.length - 1 && styles.rowBorder]}
-        >
-          <View style={styles.textCol}>
-            <Text style={styles.label}>{row.label}</Text>
-            <Text style={styles.sub}>{row.sub}</Text>
+    <View style={listStyle}>
+      {ROWS.map((row, i) => {
+        const rowStyle: ViewStyle = {
+          flexDirection: 'row',
+          alignItems: 'center',
+          paddingVertical: theme.spacing(3),
+          paddingHorizontal: theme.spacing(4),
+          gap: theme.spacing(3),
+          borderBottomWidth: i < ROWS.length - 1 ? StyleSheet.hairlineWidth : 0,
+          borderBottomColor: theme.colors.border,
+        };
+        return (
+          <View key={row.key} style={rowStyle}>
+            <View style={styles.textCol}>
+              <Text variant="label">{row.label}</Text>
+              <Text variant="caption" color="secondary">
+                {row.sub}
+              </Text>
+            </View>
+            <Switch
+              value={value[row.key]}
+              onValueChange={(v) => onChange(row.key, v)}
+              accessibilityLabel={row.label}
+              trackColor={{
+                false: theme.colors.border,
+                true: theme.colors.accent,
+              }}
+              thumbColor={theme.colors.surface}
+              ios_backgroundColor={theme.colors.border}
+            />
           </View>
-          <Switch
-            value={value[row.key]}
-            onValueChange={(v) => onChange(row.key, v)}
-            accessibilityLabel={row.label}
-          />
-        </View>
-      ))}
+        );
+      })}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  list: {
-    backgroundColor: '#fff',
-    borderWidth: 1,
-    borderColor: '#d0d7de',
-    borderRadius: 12,
-    overflow: 'hidden',
-  },
-  row: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    gap: 12,
-  },
-  rowBorder: {
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: '#d0d7de',
-  },
   textCol: {
     flex: 1,
     gap: 2,
-  },
-  label: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: '#1f2328',
-  },
-  sub: {
-    fontSize: 12,
-    color: '#57606a',
   },
 });

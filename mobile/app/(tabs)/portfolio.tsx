@@ -1,20 +1,20 @@
+import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
 import { useMemo } from 'react';
-import {
-  ActivityIndicator,
-  FlatList,
-  RefreshControl,
-  StyleSheet,
-  Text,
-  View,
-} from 'react-native';
+import { ActivityIndicator, FlatList, RefreshControl, StyleSheet, View } from 'react-native';
 
 import { Recommendation } from '../../src/components/HoldingRow';
 import { makeRenderHoldingRow } from '../../src/components/HoldingsList';
 import { PortfolioSummary } from '../../src/components/PortfolioSummary';
 import { usePortfolioSummary, usePositions } from '../../src/hooks/usePortfolio';
 import { useRecommendations } from '../../src/hooks/useRecommendations';
+import { useTheme } from '../../src/theme';
+import type { Theme } from '../../src/theme';
+import { Screen, Text } from '../../src/ui';
 
 export default function PortfolioScreen(): React.ReactElement {
+  const theme = useTheme();
+  const styles = useMemo(() => makeStyles(theme), [theme]);
+  const tabBarHeight = useBottomTabBarHeight();
   const summary = usePortfolioSummary();
   const positions = usePositions();
   const recommendations = useRecommendations();
@@ -48,39 +48,64 @@ export default function PortfolioScreen(): React.ReactElement {
 
   if (loading) {
     return (
-      <View style={styles.centered}>
-        <ActivityIndicator size="large" />
-      </View>
+      <Screen>
+        <View style={styles.centered}>
+          <ActivityIndicator size="large" color={theme.colors.accent} />
+        </View>
+      </Screen>
     );
   }
 
   const empty = (
     <View style={styles.centered}>
       {positions.error ? (
-        <Text style={styles.sub}>Positions unavailable. Pull down to retry.</Text>
+        <Text variant="caption" color="secondary">
+          Positions unavailable. Pull down to retry.
+        </Text>
       ) : (
-        <Text style={styles.sub}>No positions yet. Connect a broker in Settings.</Text>
+        <Text variant="caption" color="secondary">
+          No positions yet. Connect a broker in Settings.
+        </Text>
       )}
     </View>
   );
 
   return (
-    <FlatList
-      data={positions.data ?? []}
-      keyExtractor={(p) => p.instrument_id}
-      renderItem={renderItem}
-      ListHeaderComponent={<PortfolioSummary summary={summary.data} />}
-      ListEmptyComponent={empty}
-      ItemSeparatorComponent={() => <View style={styles.sep} />}
-      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
-      contentContainerStyle={styles.list}
-    />
+    <Screen>
+      <FlatList
+        style={styles.flatList}
+        data={positions.data ?? []}
+        keyExtractor={(p) => p.instrument_id}
+        renderItem={renderItem}
+        ListHeaderComponent={<PortfolioSummary summary={summary.data} />}
+        ListEmptyComponent={empty}
+        ItemSeparatorComponent={() => (
+          <View style={[styles.sep, { backgroundColor: theme.colors.border }]} />
+        )}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor={theme.colors.accent}
+            colors={[theme.colors.accent]}
+          />
+        }
+        contentContainerStyle={[styles.list, { paddingBottom: theme.spacing(4) + tabBarHeight }]}
+      />
+    </Screen>
   );
 }
 
-const styles = StyleSheet.create({
-  list: { padding: 16, gap: 8 },
-  centered: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 32 },
-  sub: { color: '#57606a', fontSize: 13, marginTop: 2 },
-  sep: { height: StyleSheet.hairlineWidth, backgroundColor: '#d0d7de' },
-});
+function makeStyles(theme: Theme) {
+  return StyleSheet.create({
+    flatList: { backgroundColor: 'transparent' },
+    list: { padding: theme.spacing(4), gap: theme.spacing(2) },
+    centered: {
+      flex: 1,
+      alignItems: 'center',
+      justifyContent: 'center',
+      padding: theme.spacing(8),
+    },
+    sep: { height: StyleSheet.hairlineWidth },
+  });
+}

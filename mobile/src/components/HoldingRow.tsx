@@ -1,8 +1,11 @@
-import React from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import React, { useMemo } from 'react';
+import { StyleSheet, View } from 'react-native';
 
 import type { Position } from '../hooks/usePortfolio';
 import { formatCurrency } from '../lib/format';
+import type { Theme } from '../theme';
+import { useTheme } from '../theme';
+import { Card, Text } from '../ui';
 import { AIRatingBadge, RecommendationAction } from './AIRatingBadge';
 import { FxImpactNote, FxAttribution } from './FxImpactNote';
 
@@ -30,6 +33,8 @@ export function HoldingRow({
   recommendation,
   fxAttribution,
 }: HoldingRowProps): React.ReactElement {
+  const theme = useTheme();
+  const styles = useMemo(() => makeStyles(theme), [theme]);
   const gain = item.unrealized_pl >= 0;
   const crossCurrency = item.currency !== baseCurrency;
 
@@ -45,43 +50,66 @@ export function HoldingRow({
     : null;
 
   return (
-    <View style={styles.row}>
-      <View style={{ flex: 1 }}>
-        <Text style={styles.symbol}>{item.symbol}</Text>
-        <Text style={styles.sub}>
-          {item.quantity} @ {formatCurrency(item.avg_cost, item.currency)}
-        </Text>
+    <Card context="list" style={styles.card}>
+      <View style={styles.row}>
+        <View style={styles.left}>
+          <Text variant="title" weight="600">
+            {item.symbol}
+          </Text>
+          <Text variant="caption" color="secondary" style={styles.subSpacing}>
+            {item.quantity} @ {formatCurrency(item.avg_cost, item.currency)}
+          </Text>
+        </View>
+        <View style={styles.right}>
+          <Text variant="title" weight="600" style={styles.tnum}>
+            {formatCurrency(item.market_value, item.currency)}
+          </Text>
+          <Text
+            variant="caption"
+            weight="600"
+            color={gain ? 'positive' : 'negative'}
+            style={[styles.subSpacing, styles.tnum]}
+          >
+            {nativePL}
+          </Text>
+          {basePL !== null ? (
+            <Text
+              variant="caption"
+              color="tertiary"
+              style={[styles.mutedSpacing, styles.italic]}
+            >
+              {basePL}
+            </Text>
+          ) : null}
+          {crossCurrency && (fxAttribution ?? item.fx_attribution) ? (
+            <FxImpactNote
+              attribution={(fxAttribution ?? item.fx_attribution) as FxAttribution}
+            />
+          ) : null}
+          {recommendation ? (
+            <View style={styles.badgeSpacing}>
+              <AIRatingBadge
+                action={recommendation.action}
+                confidence={recommendation.confidence}
+              />
+            </View>
+          ) : null}
+        </View>
       </View>
-      <View style={{ alignItems: 'flex-end' }}>
-        <Text style={styles.value}>
-          {formatCurrency(item.market_value, item.currency)}
-        </Text>
-        <Text style={[styles.sub, gain ? styles.gain : styles.loss]}>
-          {nativePL}
-        </Text>
-        {basePL !== null ? <Text style={styles.muted}>{basePL}</Text> : null}
-        {crossCurrency && (fxAttribution ?? item.fx_attribution) ? (
-          <FxImpactNote
-            attribution={(fxAttribution ?? item.fx_attribution) as FxAttribution}
-          />
-        ) : null}
-        {recommendation ? (
-          <AIRatingBadge
-            action={recommendation.action}
-            confidence={recommendation.confidence}
-          />
-        ) : null}
-      </View>
-    </View>
+    </Card>
   );
 }
 
-const styles = StyleSheet.create({
-  row: { flexDirection: 'row', alignItems: 'center', paddingVertical: 12 },
-  symbol: { fontSize: 16, fontWeight: '600' },
-  value: { fontSize: 16, fontWeight: '600' },
-  sub: { color: '#57606a', fontSize: 13, marginTop: 2 },
-  muted: { color: '#8c959f', fontSize: 12, marginTop: 1, fontStyle: 'italic' },
-  gain: { color: '#1a7f37' },
-  loss: { color: '#cf222e' },
-});
+function makeStyles(theme: Theme) {
+  return StyleSheet.create({
+    card: { marginVertical: theme.spacing(1) },
+    row: { flexDirection: 'row', alignItems: 'center' },
+    left: { flex: 1 },
+    right: { alignItems: 'flex-end' },
+    subSpacing: { marginTop: theme.spacing(0.5) },
+    mutedSpacing: { marginTop: 1 },
+    badgeSpacing: { marginTop: theme.spacing(1) },
+    italic: { fontStyle: 'italic' },
+    tnum: { fontVariant: ['tabular-nums'] },
+  });
+}

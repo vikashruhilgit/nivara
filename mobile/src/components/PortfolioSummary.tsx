@@ -1,8 +1,11 @@
-import React from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import React, { useMemo } from 'react';
+import { StyleSheet, View } from 'react-native';
 
 import type { PortfolioSummary as PortfolioSummaryData } from '../hooks/usePortfolio';
 import { formatCurrency } from '../lib/format';
+import type { Theme } from '../theme';
+import { useTheme } from '../theme';
+import { Surface, Text } from '../ui';
 import { PnLDisplay } from './PnLDisplay';
 
 export interface PortfolioSummaryProps {
@@ -12,32 +15,67 @@ export interface PortfolioSummaryProps {
 export function PortfolioSummary({
   summary,
 }: PortfolioSummaryProps): React.ReactElement {
+  const theme = useTheme();
+  const styles = useMemo(() => makeStyles(theme), [theme]);
+
   if (!summary) {
     return (
-      <View style={styles.header}>
-        <Text style={styles.muted}>Summary unavailable</Text>
-      </View>
+      <Surface context="static" elevation="md" style={styles.hero}>
+        <View style={styles.heroInner}>
+          <Text variant="caption" color="tertiary">
+            Summary unavailable
+          </Text>
+        </View>
+      </Surface>
     );
   }
 
   return (
-    <View style={styles.header}>
-      <Text style={styles.totalLabel}>Total value ({summary.currency})</Text>
-      <Text style={styles.totalValue}>
-        {formatCurrency(summary.total_value, summary.currency)}
-      </Text>
-      <PnLDisplay
-        amount={summary.day_change}
-        pct={summary.day_change_pct}
-        currency={summary.currency}
-      />
-    </View>
+    <Surface context="static" elevation="md" style={styles.hero}>
+      <View style={styles.heroInner}>
+        <Text variant="label" color="secondary" style={styles.uppercase}>
+          Total value
+        </Text>
+        <Text variant="h1" weight="700" style={styles.totalValue}>
+          {formatCurrency(summary.total_value, summary.currency)}
+        </Text>
+        <View style={styles.metaRow}>
+          <PnLDisplay
+            amount={summary.day_change}
+            pct={summary.day_change_pct}
+            currency={summary.currency}
+          />
+          <Text variant="caption" color="tertiary" style={styles.currencyPill}>
+            {summary.currency}
+          </Text>
+        </View>
+      </View>
+    </Surface>
   );
 }
 
-const styles = StyleSheet.create({
-  header: { marginBottom: 16 },
-  totalLabel: { color: '#57606a', fontSize: 14 },
-  totalValue: { fontSize: 32, fontWeight: '700', marginTop: 4 },
-  muted: { color: '#57606a', fontSize: 13, marginTop: 2 },
-});
+function makeStyles(theme: Theme) {
+  return StyleSheet.create({
+    hero: { marginBottom: theme.spacing(4) },
+    heroInner: { padding: theme.spacing(5) },
+    uppercase: { letterSpacing: 0.5, textTransform: 'uppercase' },
+    totalValue: {
+      marginTop: theme.spacing(2),
+      fontVariant: ['tabular-nums'],
+    },
+    metaRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      marginTop: theme.spacing(1),
+    },
+    currencyPill: {
+      backgroundColor: theme.colors.surfaceAlt,
+      borderRadius: theme.radii.pill,
+      paddingHorizontal: theme.spacing(2),
+      paddingVertical: theme.spacing(1),
+      overflow: 'hidden',
+      letterSpacing: 0.5,
+    },
+  });
+}
